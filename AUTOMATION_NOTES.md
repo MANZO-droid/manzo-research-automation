@@ -248,3 +248,27 @@ volumeStocks가 비어있는 날짜: 없음 (현재 파일에 있는 모든 날�
 `functions.maxDuration: 60`도 개장일 스킵 경로가 즉시 반환되므로 여전히
 충분합니다). 실제 개장일 판단 로직은 함수 코드(`api/cron-update-gainers.js`)
 안에서 처리합니다.
+
+---
+
+## 7. 2026-08-01: 저장소 분리 + 상승 이유 분석을 Claude → Groq로 교체
+
+- 회장님 요청으로 `manzo-site` 저장소 안의 `리서치자동화/`를 완전히 분리해
+  이 독립 저장소(`E:\AI 스터디\리서치자동화\`)로 만들었습니다. `.github/workflows/`도
+  같이 옮겨왔고, 결과 JSON은 여전히 사이트 저장소에 쓰므로 크로스 저장소
+  체크아웃·푸시 방식으로 워크플로를 다시 짰습니다(`SITE_REPO_PATH` 환경변수,
+  `SITE_REPO_PAT` 시크릿).
+- 회장님이 "무과금으로 하려고 해서 Anthropic API는 설정을 안 했다"고 밝혀,
+  `collect_gainers.py`의 `analyze_stock()`을 Claude(`claude-opus-5`, 유료)에서
+  Groq(`llama-3.3-70b-versatile`, 무료, 카드 불필요)로 교체했습니다.
+- 애초에 Claude로 바꾼 이유가 "Gemini 무료 할당량을 market-scope와 나눠 쓰다
+  소진됨"이었는데, Groq는 market-scope가 쓰는 Gemini와 할당량이 완전히
+  분리돼 있어 같은 문제가 재발하지 않습니다. Groq 무료 티어는 모델에 따라
+  하루 1,000~14,400회 수준으로, 이 파이프라인이 쓰는 하루 10~20회보다 충분히
+  여유롭습니다(2026-08-01 기준 — Gemini처럼 예고 없이 깎일 수 있어 시점을
+  못박아 둡니다).
+- **검증한 것**: python 컴파일, `groq` SDK import·생성자 시그니처(`max_retries`
+  존재), `chat.completions.create`가 `max_tokens` 파라미터를 받는지 실제
+  라이브러리에서 확인. **검증 못한 것**: 실제 Groq API를 호출해 한국어
+  `riseReason`/`chartAnalysis` 품질을 확인하는 것 — 다음 실제 실행(수동
+  `workflow_dispatch` 또는 다음 예약 실행) 때 사람이 결과물을 확인해야 합니다.

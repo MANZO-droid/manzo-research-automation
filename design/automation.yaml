@@ -48,7 +48,7 @@ automation:
       human_gate: false
     - id: step-06
       name: 상승 이유·차트 분석
-      description: "뉴스가 있으면 Claude(claude-opus-5)로 riseReason(200자 이상)과 chartAnalysis(150자 이상, 실제 technicals 수치 근거)를 생성한다"
+      description: "뉴스가 있으면 Groq(llama-3.3-70b-versatile, 무료 API, 2026-08-01부로 Claude에서 교체)로 riseReason(200자 이상)과 chartAnalysis(150자 이상, 실제 technicals 수치 근거)를 생성한다"
       human_gate: false
     - id: step-07
       name: 결과 저장

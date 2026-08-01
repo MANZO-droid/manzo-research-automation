@@ -13,9 +13,10 @@ name: "상승률 상위 10위 자동 수집"
 # 실제 실행 여부/모드 판단은 스크립트에게 맡깁니다.
 #
 # 필요한 GitHub Secrets (이 저장소의 Settings → Secrets and variables → Actions):
-#   - ANTHROPIC_API_KEY : Anthropic Claude API 키 (사람이 직접 등록해야 함)
-#   - SITE_REPO_PAT     : manzo-site 저장소에 쓰기 권한이 있는 Personal Access Token
-#                         (이 워크플로가 결과 JSON을 그 저장소에 커밋·푸시하기 위해 필요)
+#   - GROQ_API_KEY  : Groq API 키, 무료(console.groq.com에서 발급, 사람이 직접 등록해야 함)
+#                     2026-08-01부로 무료 티어 유지를 위해 Anthropic Claude에서 교체됨
+#   - SITE_REPO_PAT : manzo-site 저장소에 쓰기 권한이 있는 Personal Access Token
+#                     (이 워크플로가 결과 JSON을 그 저장소에 커밋·푸시하기 위해 필요)
 
 on:
   schedule:
@@ -51,11 +52,11 @@ jobs:
 
       - name: 의존성 설치
         run: |
-          pip install requests beautifulsoup4 anthropic
+          pip install requests beautifulsoup4 groq
 
       - name: 상승률 상위 10위 수집 (거래일 캘린더 자동 판단)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SITE_REPO_PATH: ${{ github.workspace }}/site-repo
           PYTHONUNBUFFERED: "1"
         run: |
