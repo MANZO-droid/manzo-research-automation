@@ -489,13 +489,11 @@ def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
     )
 
 
-def analyze_stock(client, name: str, ticker: str, date_str: str,
-                  change_pct: float, articles: list[dict],
-                  technicals: dict | None = None,
-                  is_weekly: bool = False) -> tuple[str, str]:
-    if not articles:
-        return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", ""
-
+def build_analysis_prompt(name: str, ticker: str, date_str: str, change_pct: float,
+                          articles: list[dict], technicals: dict | None = None,
+                          is_weekly: bool = False) -> str:
+    """Groq/Gemini 등 어떤 LLM을 쓰든 동일한 프롬프트를 쓰기 위해 분리(백필
+    스크립트가 별도 할당량의 Gemini로 이 함수를 재사용함 - analyze_stock 참고)."""
     period = "주간" if is_weekly else "당일"
     arts_text = "\n".join(
         f"[기사 {i}] ({a['date']}) {a['title']}\n{a['summary']}"
@@ -511,7 +509,7 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
         f"골든/데드크로스 발생 여부={t.get('cross') or '크로스 없음'}"
     )
 
-    prompt = f"""당신은 한국 주식 전문 애널리스트입니다.
+    return f"""당신은 한국 주식 전문 애널리스트입니다.
 아래 종목의 {period} 급등 이유와 차트 분석을 실제 수집된 기사를 바탕으로 작성하세요.
 반드시 순수 한국어로만 작성하세요. "附近", "以上", "現在"처럼 한자를 섞어 쓰지 말고,
 "부근", "이상", "현재"처럼 한글로만 표기하세요.
@@ -542,7 +540,8 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
 발생했다고 쓰지 마세요.
 """
 
-    text = call_groq_with_retry(client, prompt)
+
+def parse_analysis_response(text: str) -> tuple[str, str]:
     rise, chart = "", ""
     m_rise = re.search(r"\[riseReason\](.*?)(?=\[chartAnalysis\]|$)", text, re.DOTALL)
     m_chart = re.search(r"\[chartAnalysis\](.*?)$", text, re.DOTALL)
@@ -551,6 +550,17 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
     if m_chart:
         chart = m_chart.group(1).strip()
     return rise, chart
+
+
+def analyze_stock(client, name: str, ticker: str, date_str: str,
+                  change_pct: float, articles: list[dict],
+                  technicals: dict | None = None,
+                  is_weekly: bool = False) -> tuple[str, str]:
+    if not articles:
+        return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", ""
+    prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
+    text = call_groq_with_retry(client, prompt)
+    return parse_analysis_response(text)
 
 
 # ─── 거래대금 상위(volumeStocks) 수집 ────────────────────────────────────────

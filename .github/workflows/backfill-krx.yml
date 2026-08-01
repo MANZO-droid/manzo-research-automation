@@ -37,11 +37,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install requests beautifulsoup4 groq
+      - run: pip install requests beautifulsoup4 google-generativeai
 
       - name: 백필 실행
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}

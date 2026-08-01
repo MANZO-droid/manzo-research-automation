@@ -16,19 +16,24 @@
 --recompute-weekly 로 다시 계산할 수 있다:
   python scripts/backfill_krx_historical.py --recompute-weekly 2026-08-01 --week-start 2026-07-27 --week-end 2026-07-31
 
-필요 환경변수 (.env.local): GROQ_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, KRX_OPENAPI_KEY
+이 백필의 상승이유·차트분석은 Groq가 아니라 Gemini로 생성한다 - 오늘 이미
+일일/주간 정규 실행에서 Groq 무료 할당량을 상당히 썼고, 100건 안팎을 한 번에
+분석하는 이 백필까지 같은 할당량을 쓰면 정규 자동 실행에 지장을 줄 수 있어서
+분리했다(market-scope 파이프라인이 쓰는 것과 동일한 Gemini API, 별도 할당량).
+
+필요 환경변수 (.env.local): GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, KRX_OPENAPI_KEY
 """
 import argparse, os, sys, time
 from datetime import datetime, timedelta
 
 import requests
-from groq import Groq
+import google.generativeai as genai
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, fetch_stock_news,
-    analyze_stock, fetch_investor_netbuy, save_raw_candidates, save_to_supabase,
-    get_weekly_top10, KST,
+    build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
+    save_raw_candidates, save_to_supabase, get_weekly_top10, KST,
 )
 from krx_calendar import is_trading_day  # noqa: E402
 
@@ -91,6 +96,20 @@ def build_volume_top10(all_stocks: list[dict], date_str: str) -> list[dict]:
     return top10
 
 
+def analyze_stock_gemini(model, name: str, ticker: str, date_str: str,
+                         change_pct: float, articles: list[dict],
+                         technicals: dict | None = None, is_weekly: bool = False) -> tuple[str, str]:
+    if not articles:
+        return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", ""
+    prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
+    try:
+        resp = model.generate_content(prompt)
+        return parse_analysis_response(resp.text)
+    except Exception as e:
+        print(f"    [Gemini 오류] {e}")
+        return "", ""
+
+
 def backfill_date(client, date_str: str):
     print(f"\n{'='*50}\n[백필] {date_str}\n{'='*50}")
     base_dd = date_str.replace("-", "")
@@ -126,7 +145,7 @@ def backfill_date(client, date_str: str):
         print(f"     기사 {len(articles)}개")
         g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
 
-        rise, chart = analyze_stock(client, name, ticker, date_str, g["changePct"], articles,
+        rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"])
         g["riseReason"] = rise
         g["chartAnalysis"] = chart
@@ -162,7 +181,7 @@ def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
         print(f"     기사 {len(articles)}개")
         g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
 
-        rise, chart = analyze_stock(client, name, ticker, date_str, g["changePct"], articles,
+        rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"], is_weekly=True)
         g["riseReason"] = rise
         g["chartAnalysis"] = chart
@@ -184,12 +203,13 @@ def main():
     args = ap.parse_args()
 
     load_env()
-    for key in ("GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "KRX_OPENAPI_KEY"):
+    for key in ("GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "KRX_OPENAPI_KEY"):
         if not os.environ.get(key):
             print(f"[오류] {key}가 없습니다. .env.local에 추가해 주세요.")
             sys.exit(1)
 
-    client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+    client = genai.GenerativeModel("gemini-2.5-flash")
 
     if args.weekly_date:
         recompute_weekly(client, args.weekly_date, args.week_start, args.week_end)
