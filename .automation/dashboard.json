@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-01T11:14:17.373Z",
+  "updated_at": "2026-08-01T11:29:12.666Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,16 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-3767cb66-52d4-49bc-8bd5-e406f537c609",
+      "event_type": "bugfix",
+      "occurred_at": "2026-08-01T11:29:12.648Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "회장님 지적으로 발견: volume_stocks에 investors/prevRank/priceChange/prevTradeAmount 컬럼 누락 → db/005 마이그레이션+백필로 과거 데이터 복구, collect_gainers.py에 향후 수집 로직(네이버 frgn.naver 순매수, 전일 대비) 추가, 사이트 API 실측 확인",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-12efe92c-8646-46b2-a417-48afd62dae8e",
       "event_type": "bugfix",
       "occurred_at": "2026-08-01T11:14:17.350Z",
@@ -301,18 +311,6 @@
       "actor": "user",
       "run_id": null,
       "message": "만조리서치 Top10 자동화 주제를 실제 자동화로 계속 사용하기로 확인, 마이그레이션 계획 승인",
-      "data": {
-        "migration_id": "2026-08-01-lesson02-compaction"
-      }
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-0002-migration-detected",
-      "event_type": "migration.detected",
-      "occurred_at": "2026-08-01T05:31:00+09:00",
-      "actor": "agent",
-      "run_id": null,
-      "message": "지난 2강 번호형 구조 감지(lesson-02-numbered-v1, 신뢰도 high, 점수 11)",
       "data": {
         "migration_id": "2026-08-01-lesson02-compaction"
       }

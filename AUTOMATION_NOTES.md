@@ -420,3 +420,37 @@ Actions 환경에서 아직 자연 발화(크론)로 실행된 적은 없습니�
   gainers·volumeStocks 정상 반환, `/api/market-scope`에 current + history
   29개(최근 30개 제한 내에서 정상 - 가장 오래된 06-22 1개만 이 제한 밖으로
   빠짐, API의 `limit=30` 설계상 의도된 동작).
+
+### 8-5. 회귀 2차 발견 및 수정: 거래대금 표의 순매수·전일 순위/대비 누락
+
+§8-2에서 `volume_stocks` 테이블을 설계할 때 옛 JSON의 `rank/ticker/name/
+close/changePct/tradeAmount/naverUrl`만 옮기고, `investors`(개인/기관/외국인
+순매수)·`prevRank`(전일 순위)·`priceChange`(전일비)·`prevTradeAmount`(전일
+거래대금) 4개 필드를 스키마·백필·API 어디에도 넣지 않아, 사이트의 거래대금
+표에서 이 값들이 전부 사라지는 회귀가 있었습니다. 회장님이 "개인/기관/
+외국인 순매수 테이블을 만들어 놓았는데 안 보인다"고 지적해 발견했습니다.
+
+- `db/005_volume_stocks_investors_and_prev.sql`(신규) — 4개 컬럼 추가.
+- `scripts/backfill_json_to_supabase.py` — 옛 JSON에 있던 값(투자자별
+  순매수는 110/140행, prevRank는 27/140행, priceChange는 30/140행에만
+  원래도 존재)을 함께 이관하도록 수정 후 재실행.
+- `scripts/collect_gainers.py`의 `fetch_volume_stocks()` — **이제부터는
+  스크립트가 직접 값을 채웁니다**(과거엔 어떤 스크립트도 이 필드를 만들지
+  않았고 수동/별도 경로로 채워진 것으로 추정됨):
+  - `priceChange`: 네이버 거래대금 페이지의 전일비 셀(`em.bu_pup`/`bu_pdn`
+    클래스로 부호 판별) 파싱.
+  - `investors`: 네이버 `frgn.naver` 페이지의 최신 거래일 기관·외국인
+    순매매량(주) × 종가로 근사 금액 계산, 개인은 -(기관+외국인) 역산
+    (사이트 UI의 "※ 개인 순매수는 기관+외국인 순매수의 역산값입니다"
+    안내문과 동일한 방식으로 맞춤).
+  - `prevRank`/`prevTradeAmount`: Supabase에서 직전 거래일 `volume_stocks`를
+    조회해 같은 티커의 순위·거래대금을 비교.
+- 사이트 `api/top-gainers.js` — 4개 필드를 응답에 포함하도록 `toVolumeCard`
+  수정.
+- **검증한 것**: `fetch_investor_netbuy`/`fetch_prev_volume_stocks`를
+  실제로 호출해 정상 값 반환 확인, 백필 후 `/api/top-gainers` 실제 응답에
+  `investors` 값이 채워져 나오는 것 확인(2026-07-16 삼성전자 기준).
+  **검증 못한 것**: `investors` 근사 계산식(주식수 × 종가)의 실제 정확도 -
+  사이트 UI 안내문의 근사 방식을 그대로 따랐을 뿐 별도 검증 소스는
+  없습니다. 다음 실제 자동 실행 때 값이 상식적인 범위인지 사람이 한 번
+  확인해 주세요.
