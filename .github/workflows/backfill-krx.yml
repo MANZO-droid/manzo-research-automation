@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install requests beautifulsoup4 google-generativeai
+      - run: pip install requests beautifulsoup4 google-generativeai groq
 
       - name: 백필 실행
         env:
