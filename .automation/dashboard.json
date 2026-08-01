@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-01T11:36:25.354Z",
+  "updated_at": "2026-08-01T12:00:24.354Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,16 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-de07bcac-0627-4114-b4a5-7e7d44596770",
+      "event_type": "bugfix",
+      "occurred_at": "2026-08-01T12:00:24.334Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "근본 원인 발견 및 수정: 주간 상승률이 '오늘'을 5제곱 복리 계산하던 버그(두산 +271.29%=1.30^5-1 정확 일치로 확인). raw_top_candidates 신규 테이블+매일 저장 방식으로 전환, 다음 주간 발행일부터 정확한 값 산출 예정. 이번 주는 원본 데이터 부재로 소급 불가",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-9c99cb49-08f3-4f0f-bbfc-0bf738dbe6f4",
       "event_type": "bugfix",
       "occurred_at": "2026-08-01T11:36:25.166Z",
@@ -302,16 +312,6 @@
         ],
         "source": "student"
       }
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-0005-roadmap-updated",
-      "event_type": "roadmap.updated",
-      "occurred_at": "2026-08-01T05:41:00+09:00",
-      "actor": "agent",
-      "run_id": null,
-      "message": "design/roadmap.yaml 생성 — progress/roadmap.md의 4주 타임라인을 5단계(design/prepare/first_run/verify/operate)로 매핑, 완료 증거 없는 단계는 pending 유지",
-      "data": {}
     }
   ],
   "tools": [],
