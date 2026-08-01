@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+<title>나의 자동화 로드맵 — SemiClass</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --blue: #2f6bff;
+    --deep: #163d8c;
+    --mint: #1f9c82;
+    --mint-soft: #e6f7f2;
+    --coral: #e2544d;
+    --coral-soft: #fdefee;
+    --amber: #a06a12;
+    --amber-soft: #fbf3e2;
+    --ink: #101828;
+    --muted: #5b6b84;
+    --line: #d9e1ec;
+    --card: #ffffff;
+    --ground: #f3f6fb;
+    --chip: #edf3ff;
+    --spine: #c3d0e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --blue: #6d97ff;
+      --deep: #a9c4ff;
+      --mint: #4cc9ab;
+      --mint-soft: #12352d;
+      --coral: #f0837d;
+      --coral-soft: #3b211f;
+      --amber: #e3b566;
+      --amber-soft: #38290e;
+      --ink: #e8eefc;
+      --muted: #93a3bd;
+      --line: #2a3a58;
+      --card: #16233f;
+      --ground: #0f1b33;
+      --chip: #1d2f52;
+      --spine: #33456a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --blue: #6d97ff; --deep: #a9c4ff; --mint: #4cc9ab; --mint-soft: #12352d;
+    --coral: #f0837d; --coral-soft: #3b211f; --amber: #e3b566; --amber-soft: #38290e;
+    --ink: #e8eefc; --muted: #93a3bd;
+    --line: #2a3a58; --card: #16233f; --ground: #0f1b33; --chip: #1d2f52; --spine: #33456a;
+  }
+  :root[data-theme="light"] {
+    --blue: #2f6bff; --deep: #163d8c; --mint: #1f9c82; --mint-soft: #e6f7f2;
+    --coral: #e2544d; --coral-soft: #fdefee; --amber: #a06a12; --amber-soft: #fbf3e2;
+    --ink: #101828; --muted: #5b6b84;
+    --line: #d9e1ec; --card: #ffffff; --ground: #f3f6fb; --chip: #edf3ff; --spine: #c3d0e4;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    line-height: 1.6;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px 56px; }
+
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--muted); font-size: 13px; font-weight: 800; letter-spacing: 0.06em;
+  }
+  .brand i { width: 10px; height: 10px; border: 3px solid var(--blue); border-radius: 50%; }
+
+  header.sheet {
+    margin-top: 14px; padding: 26px 28px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .eyebrow { margin: 0 0 6px; color: var(--blue); font-size: 13px; font-weight: 900; letter-spacing: 0.08em; }
+  h1 { margin: 0 0 10px; font-size: 27px; line-height: 1.3; font-weight: 900; text-wrap: balance; }
+  .owner { color: var(--muted); font-size: 14px; font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .chip {
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--chip); color: var(--deep);
+    font-size: 13px; font-weight: 800;
+  }
+  .chip b { font-weight: 900; }
+  .progress {
+    margin-top: 18px; display: flex; align-items: center; gap: 12px;
+    color: var(--muted); font-size: 13px; font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar { flex: 1; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .bar span { display: block; height: 100%; width: 0%; border-radius: 999px; background: var(--mint); transition: width 0.25s ease; }
+
+  .features { margin-top: 18px; }
+  .features h2 {
+    margin: 0 0 10px 2px;
+    color: var(--muted);
+    font-size: 13px; font-weight: 900; letter-spacing: 0.04em;
+  }
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .fcard {
+    padding: 13px 15px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--card);
+    font-size: 13.5px; font-weight: 700; line-height: 1.5;
+  }
+  .fcard b {
+    display: inline-block; margin-bottom: 4px; padding: 2px 9px;
+    border-radius: 999px; font-size: 11.5px; font-weight: 900; letter-spacing: 0.04em;
+  }
+  .fcard strong { display: block; color: var(--ink); font-size: 14.5px; margin-bottom: 2px; }
+  .fcard span { color: var(--muted); }
+  .fcard.skill b { background: var(--chip); color: var(--blue); }
+  .fcard.conn b { background: var(--mint-soft); color: var(--mint); }
+  .fcard.plug b { background: var(--coral-soft); color: var(--coral); }
+  .fcard.cron b { background: var(--amber-soft); color: var(--amber); }
+
+  .timeline { margin-top: 30px; position: relative; padding-left: 34px; }
+  .timeline::before {
+    content: ""; position: absolute; left: 11px; top: 14px; bottom: 14px;
+    width: 3px; background: var(--spine); border-radius: 2px;
+  }
+  .week { position: relative; margin-bottom: 18px; }
+  .week::before {
+    content: ""; position: absolute; left: -34px; top: 20px;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--card); border: 4px solid var(--spine);
+  }
+  .week.current::before { border-color: var(--blue); background: var(--blue); box-shadow: 0 0 0 4px var(--chip); }
+  .week.next::before { border-color: var(--mint); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px 22px 18px;
+  }
+  .week.current .card { border: 2px solid var(--blue); }
+  .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .when { color: var(--blue); font-size: 13px; font-weight: 900; letter-spacing: 0.04em; }
+  .week.next .when { color: var(--mint); }
+  .card-head h2 { margin: 0; font-size: 18px; font-weight: 900; }
+  .tag {
+    margin-left: auto; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 900;
+  }
+  .tag.today { background: var(--chip); color: var(--blue); }
+  .tag.soon { background: var(--mint-soft); color: var(--mint); }
+
+  .piece { margin: 10px 0 0; font-size: 15px; font-weight: 700; }
+  .piece .file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; background: var(--chip); color: var(--deep); padding: 1px 7px; border-radius: 5px; }
+
+  .done { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 11px 13px; border: 1px dashed var(--line); border-radius: 8px; }
+  .done input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--mint); flex: none; cursor: pointer; }
+  .done label { font-size: 14px; font-weight: 700; cursor: pointer; }
+  .done label b { display: block; color: var(--mint); font-size: 12px; font-weight: 900; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .week.checked .done { border-style: solid; border-color: var(--mint); background: var(--mint-soft); }
+
+  .human {
+    margin-top: 10px; padding: 10px 13px;
+    border-left: 4px solid var(--coral); border-radius: 6px;
+    background: var(--coral-soft); font-size: 14px; font-weight: 700;
+  }
+  .human b { color: var(--coral); font-size: 12px; font-weight: 900; letter-spacing: 0.05em; display: block; margin-bottom: 2px; }
+
+  .foot { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px; }
+  .panel { padding: 18px 20px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font-size: 14px; font-weight: 700; }
+  .panel h3 { margin: 0 0 8px; font-size: 13px; font-weight: 900; letter-spacing: 0.05em; }
+  .panel.stop h3 { color: var(--coral); }
+  .panel.bring h3 { color: var(--mint); }
+  .panel p { margin: 0; color: var(--muted); }
+
+  footer.note { margin-top: 26px; color: var(--muted); font-size: 12.5px; font-weight: 700; text-align: center; }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 28px 14px 44px; }
+    .foot { grid-template-columns: 1fr; }
+    .feature-grid { grid-template-columns: 1fr; }
+    h1 { font-size: 22px; }
+    .tag { margin-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar span { transition: none; }
+  }
+</style>
+  </head>
+  <body>
+<div class="wrap">
+  <p class="brand"><i></i>SEMI CLASS · AI WORK AUTOMATION</p>
+
+  <header class="sheet">
+    <p class="eyebrow">나의 자동화 로드맵</p>
+    <h1>당일 상승률 Top10 종목 분석을 안전하게 정리하는 자동화</h1>
+    <p class="owner">가상 수업용 예시 · 1강 설계도에서 시작</p>
+    <div class="chips">
+      <span class="chip">트리거 <b>당일 상승률 Top10 원시 자료 1건</b></span>
+      <span class="chip">AI 역할 <b>Top10 정리 · 상승 이유 · 게시 초안</b></span>
+      <span class="chip">결과물 <b>V0 → V1 → 지식 연결</b></span>
+      <span class="chip">외부 행동 <b>사람 확인 · 게시 결정 뒤에만</b></span>
+    </div>
+    <div class="progress">
+      <span id="count">완료 판정 0 / 4</span>
+      <div class="bar"><span id="fill"></span></div>
+    </div>
+  </header>
+
+  <section class="features">
+    <h2>적용 작업법 — 회차마다 무엇을 쓰고 무엇을 남기는가</h2>
+    <div class="feature-grid">
+      <div class="fcard skill">
+        <b>1강</b>
+        <strong>자동화 설계 인터뷰</strong>
+        <span>업무·입력·사람 검토·중단 기준을 설계도와 로드맵으로 고정합니다.</span>
+      </div>
+      <div class="fcard conn">
+        <b>2강</b>
+        <strong>입·출력 규격 검증 · 목 입력 생성</strong>
+        <span>같은 원본은 중복으로 중단하고, 정상·예외 입력으로 V0를 시험합니다.</span>
+      </div>
+      <div class="fcard plug">
+        <b>3강</b>
+        <strong>워크플로우 리뷰어 · 회귀시험</strong>
+        <span>가장 큰 문제 1~2개만 고쳐 같은 테스트 ID로 V1을 확인합니다.</span>
+      </div>
+      <div class="fcard cron">
+        <b>4강</b>
+        <strong>지식베이스 구축 · 지식 확장</strong>
+        <span>근거 있는 후보만 Markdown 지식으로 승인하고 자동화에 연결합니다.</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="timeline">
+    <section class="week current" data-week="w1">
+      <div class="card">
+        <div class="card-head">
+          <span class="when">1강 · 설계</span>
+          <h2>설계도와 4강 로드맵을 만든다</h2>
+          <span class="tag today">오늘</span>
+        </div>
+        <p class="piece"><span class="file">design/automation-blueprint.md</span>와 <span class="file">progress/roadmap.md</span> · <span class="file">roadmap.html</span> — 다음 최소 단위를 정합니다.</p>
+        <div class="done">
+          <input type="checkbox" id="w1" />
+          <label for="w1"><b>완료 판정</b>트리거·입력·결과·사람 확인·중단 기준과 다음 최소 단위가 증거 파일에 있다</label>
+        </div>
+        <div class="human"><b>사람 확인 지점</b>자동화 범위와 사람이 끝까지 확인할 일을 설계도에서 확인한다</div>
+      </div>
+    </section>
+
+    <section class="week next" data-week="w2">
+      <div class="card">
+        <div class="card-head">
+          <span class="when">2강 · 구축</span>
+          <h2>반복 실행 가능한 V0를 만든다</h2>
+          <span class="tag soon">다음</span>
+        </div>
+        <p class="piece"><span class="file">workflow/WORKFLOW.md</span> · <span class="file">tests/lesson-02-results.md</span> — 당일 Top10 원시 자료 → Top10 정리·상승 이유 요약·게시 초안을 같은 규격으로 만듭니다.</p>
+        <div class="done">
+          <input type="checkbox" id="w2" />
+          <label for="w2"><b>완료 판정</b>N-01·N-02를 처리해 같은 여섯 heading의 결과와 게시 보류 또는 확인 증거를 남겼다</label>
+        </div>
+        <div class="human"><b>사람 확인 지점</b>입·출력 규격 검증과 목 입력 생성으로 예외를 시험하고, 원본에 없는 사실은 확인 필요로 둔다</div>
+      </div>
+    </section>
+
+    <section class="week" data-week="w3">
+      <div class="card">
+        <div class="card-head">
+          <span class="when">3강 · 안정화</span>
+          <h2>V0를 믿을 수 있는 V1으로 다듬는다</h2>
+        </div>
+        <p class="piece"><span class="file">evidence/workflow-review.md</span> · <span class="file">tests/lesson-03-regression.md</span> — 워크플로우 리뷰어와 회귀시험으로 가장 큰 문제만 고칩니다.</p>
+        <div class="done">
+          <input type="checkbox" id="w3" />
+          <label for="w3"><b>완료 판정</b>V1 규칙과 N-01·N-02·E-01의 수정 전후 재시험 증거가 있다</label>
+        </div>
+        <div class="human"><b>사람 확인 지점</b>테스트를 통과하려고 입력이나 기대 결과를 바꾸지 않았는지 확인한다</div>
+      </div>
+    </section>
+
+    <section class="week" data-week="w4">
+      <div class="card">
+        <div class="card-head">
+          <span class="when">4강 · 지식화</span>
+          <h2>검증된 업무 지식을 자동화에 연결한다</h2>
+        </div>
+        <p class="piece"><span class="file">knowledge/00-index.md</span> · 6~10개 Markdown 노트 · <span class="file">evidence/knowledge-before-after.md</span> — 승인된 지식만 읽도록 워크플로우를 연결합니다.</p>
+        <div class="done">
+          <input type="checkbox" id="w4" />
+          <label for="w4"><b>완료 판정</b>같은 입력의 지식 연결 전후 결과와 사람 판단이 증거로 남았다</label>
+        </div>
+        <div class="human"><b>사람 확인 지점</b>근거·민감도·접근 범위를 확인한 지식만 승격하고, 회사와 개인 자료는 분리한다</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot">
+    <div class="panel stop">
+      <h3>멈추고 설계로 돌아오는 조건</h3>
+      <p>같은 원본이 다시 들어오면 중복으로 중단합니다. 새 결과를 만들지 말고 목 입력 생성으로 정상·중복 쌍을 다시 시험합니다.</p>
+    </div>
+    <div class="panel bring">
+      <h3>다음 시간 준비물</h3>
+      <p>1강 설계도 · 로드맵 · 당일 Top10 원시 자료 두 건 · 결과 작성 기준 · 사람이 확인할 게시 조건</p>
+    </div>
+  </div>
+
+  <footer class="note">설계한다 → 작동시킨다 → 믿을 수 있게 만든다 → 내 업무를 기억하게 만든다. 완료 표시는 증거와 사람 확인이 있을 때만 바꿉니다.</footer>
+</div>
+
+<script>
+  (function () {
+    var KEY = "semiclass-roadmap-demo";
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('.done input'));
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }
+
+    function sync() {
+      var done = 0;
+      boxes.forEach(function (box) {
+        var week = box.closest(".week");
+        week.classList.toggle("checked", box.checked);
+        if (box.checked) done += 1;
+      });
+      document.getElementById("count").textContent = "완료 판정 " + done + " / " + boxes.length;
+      document.getElementById("fill").style.width = (done / boxes.length) * 100 + "%";
+    }
+
+    boxes.forEach(function (box) {
+      if (saved[box.id]) box.checked = true;
+      box.addEventListener("change", function () {
+        saved[box.id] = box.checked;
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+        sync();
+      });
+    });
+    sync();
+  })();
+</script>
+  </body>
+</html>

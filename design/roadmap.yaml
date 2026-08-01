@@ -1,0 +1,30 @@
+schema: semiclass-automation-roadmap/v1
+current_stage: design
+stages:
+  - id: design
+    name: 설계
+    status: in_progress
+    evidence:
+      - "design/automation.yaml이 scripts/collect_gainers.py 실제 코드와 대조 검증됨(2026-07-25)"
+      - "우선주·ETF·ETN 필터링 구현 및 실제 라이브 크롤링 검증(2026-07-24, 우선주 3건·ETF 5건·ETN 25건 제외 확인)"
+  - id: prepare
+    name: 자료 준비
+    status: in_progress
+    evidence:
+      - "input/manzo-real-2026-07-13-049080.txt 실제 입력 1건 저장"
+      - "reference/policies/manzo-output-contract.md 실제 출력 규격 확정"
+  - id: first_run
+    name: 첫 실행
+    status: pending
+    evidence: []
+  - id: verify
+    name: 반복 검증
+    status: pending
+    evidence: []
+  - id: operate
+    name: 운영
+    status: pending
+    evidence: []
+next_action:
+  title: "관리종목·정리매매 제외 필터링을 get_daily_top10()에 추가(KRX 계정 발급 후 classify_excluded()에 조건 추가)"
+  completion_evidence: "실제 라이브 크롤링에서 관리종목·정리매매 종목이 결과에 섞이지 않는 것을 사람이 확인"

@@ -1,0 +1,733 @@
+{
+  "schema": "semiclass-legacy-migration/v1",
+  "migration_id": "2026-08-01-lesson02-compaction",
+  "source_layout": "lesson-02-numbered-v1",
+  "status": "completed",
+  "design_identity": "personal_candidate",
+  "approved_at": "2026-08-01T05:35:00+09:00",
+  "mappings": [
+    {
+      "source": "01-input/manzo-real-2026-07-13-049080.txt",
+      "target": "input/manzo-real-2026-07-13-049080.txt",
+      "classification": "student_confirmed",
+      "action": "copied",
+      "sha256": null
+    },
+    {
+      "source": "02-reference/manzo-output-contract.md",
+      "target": "reference/policies/manzo-output-contract.md",
+      "classification": "student_confirmed",
+      "action": "copied",
+      "sha256": null
+    },
+    {
+      "source": "context/README.md",
+      "target": "reference/policies/confirmed-rules.md",
+      "classification": "student_confirmed",
+      "action": "consolidated",
+      "sha256": null
+    },
+    {
+      "source": "inbox/lesson-02.md",
+      "target": ".automation/intake.json",
+      "classification": "student_confirmed",
+      "action": "consolidated",
+      "sha256": null
+    },
+    {
+      "source": "design/automation-blueprint.md",
+      "target": "design/automation.yaml",
+      "classification": "student_confirmed",
+      "action": "consolidated",
+      "sha256": null
+    },
+    {
+      "source": "progress/roadmap.md",
+      "target": "design/roadmap.yaml",
+      "classification": "student_confirmed",
+      "action": "consolidated",
+      "sha256": null
+    },
+    {
+      "source": "progress/roadmap.html",
+      "target": "design/roadmap.yaml",
+      "classification": "student_confirmed",
+      "action": "consolidated",
+      "sha256": null
+    },
+    {
+      "source": "workflow/WORKFLOW.md",
+      "target": "design/automation.yaml",
+      "classification": "student_confirmed",
+      "action": "consolidated",
+      "sha256": null
+    }
+  ],
+  "exclusions": [
+    {
+      "source": "01-input/N-01-top10-api-snapshot.txt",
+      "reason": "강의 공통 샘플(가상 Top10 자동화) — 만조리서치 실제 자료 아님",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/01-input/N-01-top10-api-snapshot.txt"
+    },
+    {
+      "source": "01-input/N-02-top10-text-list.txt",
+      "reason": "강의 공통 샘플",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/01-input/N-02-top10-text-list.txt"
+    },
+    {
+      "source": "01-input/N-03-top10-enriched-news.txt",
+      "reason": "목 입력(뉴스 보강 회귀 시험용, 가상)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/01-input/N-03-top10-enriched-news.txt"
+    },
+    {
+      "source": "01-input/E-01-missing-classification.txt",
+      "reason": "목 입력(형식 오류 시험용, 가상)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/01-input/E-01-missing-classification.txt"
+    },
+    {
+      "source": "01-input/E-02-duplicate-of-N-01.txt",
+      "reason": "목 입력(중복 제출 시험용, 가상)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/01-input/E-02-duplicate-of-N-01.txt"
+    },
+    {
+      "source": "02-reference/output-contract.txt",
+      "reason": "강의 공통 샘플의 결과 작성 기준(가상 자동화용)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/02-reference/output-contract.txt"
+    },
+    {
+      "source": "02-reference/README.md",
+      "reason": "안내문 — 내용은 새 README.md로 이관",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/02-reference/README.md"
+    },
+    {
+      "source": "02-reference/workspace-file-guide.md",
+      "reason": "안내문 — 내용은 새 README.md로 이관",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/02-reference/workspace-file-guide.md"
+    },
+    {
+      "source": "02-reference/복습요약-보고서-양식.html",
+      "reason": "만조리서치 출력과 무관한 강의 복습 리포트 양식, 업무자동화 강의자료_20260725/report-template/과 동일 파일(중복)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/02-reference/복습요약-보고서-양식.html"
+    },
+    {
+      "source": "02-reference/복습요약-보고서-양식.pdf",
+      "reason": "위와 동일 사유",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/02-reference/복습요약-보고서-양식.pdf"
+    },
+    {
+      "source": "03-output/N-01-result.md",
+      "reason": "목 입력(N-01)에서 나온 연습용 결과",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/03-output/N-01-result.md"
+    },
+    {
+      "source": "03-output/N-02-result.md",
+      "reason": "목 입력(N-02)에서 나온 연습용 결과",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/03-output/N-02-result.md"
+    },
+    {
+      "source": "03-output/N-03-result.md",
+      "reason": "목 입력(N-03)에서 나온 연습용 결과",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/03-output/N-03-result.md"
+    },
+    {
+      "source": "03-output/README.md",
+      "reason": "안내문",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/03-output/README.md"
+    },
+    {
+      "source": "evidence/README.md",
+      "reason": "3강 이후 사용 예정, 빈 폴더 안내문뿐",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/evidence/README.md"
+    },
+    {
+      "source": "knowledge/README.md",
+      "reason": "4강 이후 사용 예정, 빈 폴더 안내문뿐",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/knowledge/README.md"
+    },
+    {
+      "source": "tests/lesson-02-results.md",
+      "reason": "강의 연습 시험 기록(N-01/N-02/N-03/E-01/E-02)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/tests/lesson-02-results.md"
+    },
+    {
+      "source": "tests/manzo-regression-2026-07-13.md",
+      "reason": "실제 회귀 기록이나, 발견 사실은 design/automation.yaml과 design/automation-blueprint.md 원문(아카이브)에 이미 반영돼 정보 손실 없음",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/tests/manzo-regression-2026-07-13.md"
+    },
+    {
+      "source": "tests/manzo-fixes-2026-07-25.md",
+      "reason": "실제 수정 기록이나, 내용은 design/automation.yaml과 원문(아카이브)에 이미 반영돼 정보 손실 없음",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/tests/manzo-fixes-2026-07-25.md"
+    },
+    {
+      "source": "skills",
+      "reason": ".claude/skills/, .agents/skills/에 이미 동일 스킬이 설치돼 있어 중복(두 활성 스킬은 새 경로를 가리키도록 갱신 완료)",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/skills"
+    },
+    {
+      "source": "업무자동화 강의자료_20260725",
+      "reason": "강의 원본 ZIP 내용, 살아있는 부분(설계도·로드맵·스킬 원본)은 이미 design/·progress/(구)·skills/로 복사가 끝난 상태였음",
+      "recovery": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/업무자동화 강의자료_20260725"
+    }
+  ],
+  "coverage": [
+    {
+      "source": "01-input/manzo-real-2026-07-13-049080.txt",
+      "source_grade": "student_confirmed",
+      "final_action": "copied",
+      "verified": true
+    },
+    {
+      "source": "01-input/N-01-top10-api-snapshot.txt",
+      "source_grade": "course_sample",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "01-input/N-02-top10-text-list.txt",
+      "source_grade": "course_sample",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "01-input/N-03-top10-enriched-news.txt",
+      "source_grade": "mock_test",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "01-input/E-01-missing-classification.txt",
+      "source_grade": "mock_test",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "01-input/E-02-duplicate-of-N-01.txt",
+      "source_grade": "mock_test",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "02-reference/manzo-output-contract.md",
+      "source_grade": "student_confirmed",
+      "final_action": "copied",
+      "verified": true
+    },
+    {
+      "source": "02-reference/output-contract.txt",
+      "source_grade": "course_sample",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "02-reference/README.md",
+      "source_grade": "legacy_guidance",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "02-reference/workspace-file-guide.md",
+      "source_grade": "legacy_guidance",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "02-reference/복습요약-보고서-양식.html",
+      "source_grade": "course_sample",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "02-reference/복습요약-보고서-양식.pdf",
+      "source_grade": "course_sample",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "03-output/N-01-result.md",
+      "source_grade": "mock_output",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "03-output/N-02-result.md",
+      "source_grade": "mock_output",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "03-output/N-03-result.md",
+      "source_grade": "mock_output",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "03-output/README.md",
+      "source_grade": "legacy_guidance",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "design/automation-blueprint.md",
+      "source_grade": "student_confirmed",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "progress/roadmap.md",
+      "source_grade": "student_confirmed",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "progress/roadmap.html",
+      "source_grade": "student_confirmed",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "workflow/WORKFLOW.md",
+      "source_grade": "student_confirmed",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "context/README.md",
+      "source_grade": "student_confirmed",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "inbox/lesson-02.md",
+      "source_grade": "student_confirmed",
+      "final_action": "consolidated",
+      "verified": true
+    },
+    {
+      "source": "evidence/README.md",
+      "source_grade": "legacy_guidance",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "knowledge/README.md",
+      "source_grade": "legacy_guidance",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "tests/lesson-02-results.md",
+      "source_grade": "mock_test",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "tests/manzo-regression-2026-07-13.md",
+      "source_grade": "student_confirmed",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "tests/manzo-fixes-2026-07-25.md",
+      "source_grade": "student_confirmed",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "skills",
+      "source_grade": "legacy_guidance",
+      "final_action": "archive_only",
+      "verified": true
+    },
+    {
+      "source": "업무자동화 강의자료_20260725",
+      "source_grade": "course_sample",
+      "final_action": "archive_only",
+      "verified": true
+    }
+  ],
+  "warnings": [],
+  "compaction": {
+    "approved": true,
+    "status": "completed",
+    "archive_root": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root",
+    "completed_at": "2026-08-01T05:49:43.178Z",
+    "moved": [
+      {
+        "source": "01-input",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/01-input",
+        "type": "directory",
+        "files": [
+          {
+            "path": "01-input/E-01-missing-classification.txt",
+            "sha256": "4f53936187bb9951621d159ce327bb0e94264942f765727b5458fc2584755d03",
+            "size": 1743
+          },
+          {
+            "path": "01-input/E-02-duplicate-of-N-01.txt",
+            "sha256": "b3e4513e8b86dac312eebe7bd37e008571ddf322c415a28be2cb39f98cbb11c6",
+            "size": 2215
+          },
+          {
+            "path": "01-input/manzo-real-2026-07-13-049080.txt",
+            "sha256": "24d3c69b175cadc3f97ec3ca17cae6735b45d06f1834208b9ac2c86d484ea818",
+            "size": 1820
+          },
+          {
+            "path": "01-input/N-01-top10-api-snapshot.txt",
+            "sha256": "a83e69fd8f33ce915994c03f090886d168171984cadd6be82483d8b8a760c01f",
+            "size": 4245
+          },
+          {
+            "path": "01-input/N-02-top10-text-list.txt",
+            "sha256": "fc2c26a98b7361a26ce35d8619b382968ce61fdf28e1ff335d8401e3f10a28ab",
+            "size": 3222
+          },
+          {
+            "path": "01-input/N-03-top10-enriched-news.txt",
+            "sha256": "213ba7df18b69726f681053d1130b710c9378b5214491b15e3d57a6db34f9693",
+            "size": 6484
+          },
+          {
+            "path": "01-input/README.md",
+            "sha256": "c723c4d626d1bb134a3cadecaf495c099fc8ebbfda381bd0e9143fd0730d72d7",
+            "size": 1994
+          }
+        ]
+      },
+      {
+        "source": "02-reference",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/02-reference",
+        "type": "directory",
+        "files": [
+          {
+            "path": "02-reference/복습요약-보고서-양식.html",
+            "sha256": "6f999cee05d1eb11aac64a0422368462f998412c0e6226078fdc39d9e22c02f5",
+            "size": 3873
+          },
+          {
+            "path": "02-reference/복습요약-보고서-양식.pdf",
+            "sha256": "06e772a54c2cc50e2310e64829ff0c5aa0b753ec336a48a1333dc2aac5158703",
+            "size": 200685
+          },
+          {
+            "path": "02-reference/manzo-output-contract.md",
+            "sha256": "e9562c5532d07d8a055599c8253983e96bf08e9b91c06b445ae662449ca9cdc2",
+            "size": 3789
+          },
+          {
+            "path": "02-reference/output-contract.txt",
+            "sha256": "12af543cacb843be0b716567a81b50119d67c9706f20c7d8e7fb118b7cb2d8bd",
+            "size": 3057
+          },
+          {
+            "path": "02-reference/README.md",
+            "sha256": "415d5a883b07d53d0fe109c09a15aa58be666a2adaaf70fe8bec7a20a5a61435",
+            "size": 1476
+          },
+          {
+            "path": "02-reference/workspace-file-guide.md",
+            "sha256": "7aac4a1d1228671b6cfb2fc1c6a13bafbd83b43140d00d774a8754a1f22e9a7c",
+            "size": 5007
+          }
+        ]
+      },
+      {
+        "source": "03-output",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/03-output",
+        "type": "directory",
+        "files": [
+          {
+            "path": "03-output/N-01-result.md",
+            "sha256": "e2b2dc624a81c15fe626d919363f3eb31a649698ab284626088111189c2dc503",
+            "size": 11225
+          },
+          {
+            "path": "03-output/N-02-result.md",
+            "sha256": "a058f94b463a7abd578bb61bbdfad6536e0281897c8c445db5b58ceab8fe7402",
+            "size": 10194
+          },
+          {
+            "path": "03-output/N-03-result.md",
+            "sha256": "29aad201608a7513ffc343e63670ff50279bc3a3d6678d5c1e3bff633d2d76c5",
+            "size": 9254
+          },
+          {
+            "path": "03-output/README.md",
+            "sha256": "4d95301834b10204186b2504dbb8296f58cd14c0f2f4da0eade80d03d4215e1e",
+            "size": 1316
+          }
+        ]
+      },
+      {
+        "source": "context",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/context",
+        "type": "directory",
+        "files": [
+          {
+            "path": "context/README.md",
+            "sha256": "01aad603f7fbbb1455c5d8578ffc9ceb0fe469fced8fd1d02c7009cc76612be9",
+            "size": 667
+          }
+        ]
+      },
+      {
+        "source": "inbox",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/inbox",
+        "type": "directory",
+        "files": [
+          {
+            "path": "inbox/lesson-02.md",
+            "sha256": "b6a236b925cc053c4812f28db2036568a348bde6079ee5dc68308f80c7d8b7ee",
+            "size": 1307
+          }
+        ]
+      },
+      {
+        "source": "evidence",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/evidence",
+        "type": "directory",
+        "files": [
+          {
+            "path": "evidence/README.md",
+            "sha256": "ffe022577b2c544964184fe43b76bfc89d5f5b3294d19aac63bdc9f8b4ac8aff",
+            "size": 343
+          }
+        ]
+      },
+      {
+        "source": "knowledge",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/knowledge",
+        "type": "directory",
+        "files": [
+          {
+            "path": "knowledge/README.md",
+            "sha256": "0d813fadba2e01e505bcaa7747c75ec6c0b70685332f1f2b2b345281b18c8bf5",
+            "size": 302
+          }
+        ]
+      },
+      {
+        "source": "progress",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/progress",
+        "type": "directory",
+        "files": [
+          {
+            "path": "progress/roadmap.html",
+            "sha256": "0f27d48d3d7a775aa24253b4cc0d440bbad3f2aadd7575c6361e24e222f250cd",
+            "size": 11313
+          },
+          {
+            "path": "progress/roadmap.md",
+            "sha256": "155821847d66519f320e6a29b3fd12131138bbb9857dd8e8b8162b27df2310e6",
+            "size": 3775
+          }
+        ]
+      },
+      {
+        "source": "workflow",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/workflow",
+        "type": "directory",
+        "files": [
+          {
+            "path": "workflow/WORKFLOW.md",
+            "sha256": "d0d217bd30e314ab111efc931c9c111ee3060c6f70d3aa4af13bc489b63bfc41",
+            "size": 5749
+          }
+        ]
+      },
+      {
+        "source": "tests",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/tests",
+        "type": "directory",
+        "files": [
+          {
+            "path": "tests/lesson-02-results.md",
+            "sha256": "7dffa9eb276f4fc5dee4aeaf82be8a0a20c1c9b200bc2a8755ff3e5f07c24036",
+            "size": 7752
+          },
+          {
+            "path": "tests/manzo-fixes-2026-07-25.md",
+            "sha256": "c84d9275d34033712a139119b0eb52f90c3569ab6a5a7068f6bdac5037385ad5",
+            "size": 4821
+          },
+          {
+            "path": "tests/manzo-regression-2026-07-13.md",
+            "sha256": "94f39e2aed4785542a7e59d28b3e2501c1225ae11655286ec316d973512d81a5",
+            "size": 3020
+          }
+        ]
+      },
+      {
+        "source": "skills",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/skills",
+        "type": "directory",
+        "files": [
+          {
+            "path": "skills/semiclass-input-output-spec-review/SKILL.md",
+            "sha256": "f9c57747279b6cc5f23699bb041dfc71087dfb5133bb481ac27d1a0d37a0338b",
+            "size": 2306
+          },
+          {
+            "path": "skills/semiclass-mock-input-generator/SKILL.md",
+            "sha256": "e891fe1a32efba4ac5000f15299816628269a04ba65c19625f8656c7b8e363bb",
+            "size": 2389
+          }
+        ]
+      },
+      {
+        "source": "업무자동화 강의자료_20260725",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/업무자동화 강의자료_20260725",
+        "type": "directory",
+        "files": [
+          {
+            "path": "업무자동화 강의자료_20260725/나의_자동화_로드맵.html",
+            "sha256": "0f715bdd22799bf568867d6655170189599daaea96fbb7d65f21997b08651395",
+            "size": 11112
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/만조리서치_Top10_자동화_설계도.md",
+            "sha256": "badff812bb1072c8d6731016867de337b646617fa7b7e6b1a577fbc4046d31c7",
+            "size": 4724
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/expected-results.txt",
+            "sha256": "20e214a78deb6ee76a1d278ca6fbb2203f840f1e35a964d90748cdc4ca645e08",
+            "size": 4044
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/N-01-top10-api-snapshot.txt",
+            "sha256": "a83e69fd8f33ce915994c03f090886d168171984cadd6be82483d8b8a760c01f",
+            "size": 4245
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/N-02-top10-text-list.txt",
+            "sha256": "fc2c26a98b7361a26ce35d8619b382968ce61fdf28e1ff335d8401e3f10a28ab",
+            "size": 3222
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/output-contract.txt",
+            "sha256": "580e5bda118267929a524926bb62926b2897d46c69d32d825108c220f09d0e2a",
+            "size": 2677
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/publish-checklist.txt",
+            "sha256": "e66efa42d26b49e22b4899cd17fc240b29ee5f37bd0aca794a23f8b3ade40fee",
+            "size": 1679
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/README.txt",
+            "sha256": "3dfc28470b4d672b162a89894bd337a2916717d905d2ed71c66a0bb3e87e53fb",
+            "size": 4144
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/repetition-test-prompt.txt",
+            "sha256": "ca0986c04b7001d674a66bdd040fdf1266e0b06bf239ee2204ec8a70c3e54f5e",
+            "size": 1836
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/virtual-lesson-01-roadmap.html",
+            "sha256": "26862e5d793e321eb86cb1c50194901ed15451a355ed44115ad30c9f2d92d44f",
+            "size": 15224
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/common-sample-pack/virtual-lesson-01-roadmap.md",
+            "sha256": "ae8993558264ff9501f2ba3970709fbd2a7b08fd3b6a1e7d33ab8aa6ce0026e4",
+            "size": 8292
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/README.md",
+            "sha256": "ea6b4c54501168aa7b73795b41387d387d5a4f2ade11d04a556df7ead22901bf",
+            "size": 6172
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/report-template/복습요약-보고서-양식.html",
+            "sha256": "6f999cee05d1eb11aac64a0422368462f998412c0e6226078fdc39d9e22c02f5",
+            "size": 3873
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/report-template/복습요약-보고서-양식.pdf",
+            "sha256": "06e772a54c2cc50e2310e64829ff0c5aa0b753ec336a48a1333dc2aac5158703",
+            "size": 200685
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/skill-templates/semiclass-input-output-spec-review/SKILL.md",
+            "sha256": "f9c57747279b6cc5f23699bb041dfc71087dfb5133bb481ac27d1a0d37a0338b",
+            "size": 2306
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/skill-templates/semiclass-mock-input-generator/SKILL.md",
+            "sha256": "e891fe1a32efba4ac5000f15299816628269a04ba65c19625f8656c7b8e363bb",
+            "size": 2389
+          },
+          {
+            "path": "업무자동화 강의자료_20260725/workspace-scaffold-skill.md",
+            "sha256": "3ba124601f9a5b8f3c72af5d088f3d7be78885debc6c2753cddc1f8837bc8f34",
+            "size": 13499
+          }
+        ]
+      },
+      {
+        "source": "design/automation-blueprint.md",
+        "target": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root/design/automation-blueprint.md",
+        "type": "file",
+        "files": [
+          {
+            "path": "design/automation-blueprint.md",
+            "sha256": "ddffba37e112dc1b9fcccdef48b8f916ddf41e7b152c6bf72f69c8b03e20c8c4",
+            "size": 14683
+          }
+        ]
+      }
+    ],
+    "visible_root_after": [
+      ".agents",
+      ".automation",
+      ".claude",
+      ".env.example",
+      ".env.local",
+      ".git",
+      ".github",
+      ".gitignore",
+      ".semiclass",
+      ".superpowers",
+      ".vercel",
+      "AUTOMATION_NOTES.md",
+      "CLAUDE.md",
+      "MANZO",
+      "README.md",
+      "api",
+      "archive.html",
+      "article.html",
+      "author.jpg",
+      "chart_data.json",
+      "dashboard.html",
+      "data.js",
+      "db",
+      "design",
+      "docs",
+      "docs_cache",
+      "icon-192.png",
+      "icon-512.png",
+      "index.html",
+      "input",
+      "krx-holidays-2026.json",
+      "lib",
+      "manifest.json",
+      "market-scope-data.json",
+      "node_modules",
+      "notes",
+      "output",
+      "package-lock.json",
+      "package.json",
+      "reference",
+      "scripts",
+      "stock-analysis-data.json",
+      "style.css",
+      "sw.js",
+      "testfile.txt",
+      "testfile.txt.bak",
+      "vercel.json"
+    ]
+  }
+}

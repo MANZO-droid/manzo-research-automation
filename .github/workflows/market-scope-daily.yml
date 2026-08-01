@@ -1,0 +1,66 @@
+name: "마켓 스코프 자동 업데이트"
+
+# 2026-08-01: 이 워크플로는 원래 manzo-site 저장소(사이트 코드) 안에 있었는데,
+# 리서치자동화가 별도 저장소로 분리되면서 여기로 옮겨왔습니다. 결과 JSON은
+# 이 저장소가 아니라 사이트 저장소(manzo-site)에 있어서, 그쪽 저장소를
+# site-repo/ 아래에 추가로 체크아웃하고 SITE_REPO_PATH로 위치를 알려줍니다.
+#
+# scripts/collect_market_scope.py를 인자 없이("오늘" 기준) 실행하면 내부적으로
+# scripts/krx_calendar.py(is_trading_day)로 오늘이 KRX 개장일인지 확인해,
+# 개장일이 아니면 리포트를 만들지 않고 조용히 종료합니다.
+#
+# 필요한 GitHub Secrets (이 저장소의 Settings → Secrets and variables → Actions):
+#   - GEMINI_API_KEY : Google Gemini API 키 (사람이 직접 등록해야 함)
+#   - SITE_REPO_PAT  : manzo-site 저장소에 쓰기 권한이 있는 Personal Access Token
+
+on:
+  schedule:
+    # 매일 20:00 UTC = 05:00 KST(다음날). 개장일이 아니면 스크립트 내부에서
+    # 자동으로 스킵되므로 요일 조건 없이 매일 호출한다.
+    - cron: "0 20 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: market-scope-daily
+  cancel-in-progress: false
+
+jobs:
+  collect-market-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 이 저장소(리서치자동화) 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 사이트 저장소(manzo-site) 체크아웃 (결과를 여기에 씀)
+        uses: actions/checkout@v4
+        with:
+          repository: MANZO-droid/manzo-site
+          token: ${{ secrets.SITE_REPO_PAT }}
+          path: site-repo
+          fetch-depth: 0
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: |
+          pip install requests beautifulsoup4 google-generativeai
+
+      - name: 마켓 스코프 수집 (개장일에만 실제 리포트 생성)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SITE_REPO_PATH: ${{ github.workspace }}/site-repo
+        run: |
+          python scripts/collect_market_scope.py
+
+      - name: 사이트 저장소에 변경사항 커밋 및 푸시
+        working-directory: site-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add market-scope-data.json
+          git diff --cached --quiet || git commit -m "data: 마켓 스코프 자동 업데이트 ($(date -u +%Y-%m-%d))"
+          git push

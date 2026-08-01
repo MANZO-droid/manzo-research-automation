@@ -1,0 +1,83 @@
+schema: semiclass-automation/v1
+automation:
+  id: manzo-top10-gainers
+  name: 만조리서치 Top10 종목 분석 자동화
+  purpose: "한국 증시 장 마감 기준 당일(토요일·연휴는 주간) 상승률 Top10 종목을 리스트업하고 상승 이유·차트를 분석해 사이트(별도 저장소 manzo-site)의 index.html의 '당일 상승률 상위 10위'·'거래대금 상위 10위' 섹션에 매일 반영"
+  trigger:
+    type: schedule
+    description: "GitHub Actions(.github/workflows/gainers-daily.yml)가 매일 07:00 UTC(=16:00 KST)에 인자 없이 호출, krx_calendar.get_weekly_report_trigger()가 오늘 발행 여부와 daily/weekly 모드를 자동 판단"
+  input:
+    description: "네이버 증권 상승률/거래대금 크롤링, 네이버 fchart OHLCV(120일), 종목당 네이버 뉴스 최대 15개"
+    formats:
+      - html
+      - json
+    paths:
+      - input/manzo-real-2026-07-13-049080.txt
+    required_fields:
+      - 종목명
+      - 종목코드
+      - 날짜
+      - 등락률
+      - 뉴스기사제목
+  references:
+    input_forms: []
+    output_forms: []
+    policies:
+      - reference/policies/manzo-output-contract.md
+    examples: []
+  process:
+    - id: step-01
+      name: 발행 여부 판단
+      description: "krx_calendar.get_weekly_report_trigger()로 오늘이 발행일인지, daily/weekly 모드인지 판단한다. 발행일이 아니면 종료한다"
+      human_gate: false
+    - id: step-02
+      name: Top10 선정
+      description: "get_daily_top10()/get_weekly_top10()으로 KOSPI+KOSDAQ 상승률 상위 10을 선정한다. 우선주·ETF·ETN 제외는 구현·검증됨(2026-07-24). 관리종목·정리매매 제외는 미구현 — 확인 필요"
+      human_gate: false
+    - id: step-03
+      name: 거래대금 상위 선정
+      description: fetch_volume_stocks()로 거래대금 상위 10을 선정한다
+      human_gate: false
+    - id: step-04
+      name: 기술적 지표 계산
+      description: "종목별 OHLCV 120일을 수집해 최근 60일만 저장하고, calc_technicals로 기술적 지표를 계산한다"
+      human_gate: false
+    - id: step-05
+      name: 뉴스 수집
+      description: "fetch_stock_news로 종목별 뉴스를 최대 15개 수집하고 상위 5개만 저장한다. 뉴스가 0건이면 분석 자체를 생략한다"
+      human_gate: false
+    - id: step-06
+      name: 상승 이유·차트 분석
+      description: "뉴스가 있으면 Claude(claude-opus-5)로 riseReason(200자 이상)과 chartAnalysis(150자 이상, 실제 technicals 수치 근거)를 생성한다"
+      human_gate: false
+    - id: step-07
+      name: 결과 저장
+      description: "사이트 저장소의 stock-analysis-data.json의 dates[날짜]에 날짜별로 upsert 저장한다(기존 날짜는 지워지지 않음)"
+      human_gate: false
+    - id: step-08
+      name: 게시
+      description: "git_push()가 스크립트 안에서 조건 없이 자동 실행된다(add→commit→push). 사람이 막는 지점이 코드에 없음"
+      human_gate: false
+  output:
+    description: "사이트 저장소의 stock-analysis-data.json의 dates[날짜].gainers[]와 volumeStocks[]. 사이트의 '당일 상승률 상위 10위'·'거래대금 상위 10위' 섹션에서 렌더링됨"
+    formats:
+      - json
+    path_pattern: "../만조그룹 2차/stock-analysis-data.json (별도 저장소 manzo-site) — SITE_REPO_PATH 환경변수로 위치를 넘긴다. 로컬 실행은 형제 폴더로 기본 가정. 이 저장소의 output/은 실제 실행 산출물 보관용으로 비워 둠"
+    required_fields:
+      - rank
+      - ticker
+      - name
+      - changePct
+      - riseReason
+      - chartAnalysis
+  exceptions:
+    missing: ask
+    duplicate: stop
+    invalid_format: stop
+  external_actions:
+    enabled: true
+    approval_required: true
+    note: "git_push()가 스크립트 안에서 조건 없이 자동 실행됨 — 사전 승인 게이트가 현재 코드에는 없음(확인 필요). 사후 검토만 가능한 상태"
+  human_review:
+    required: true
+    point: "최종 게시(배포) 이후 사후 검토 — 상승 이유 분석의 사실관계, 분량(riseReason 200자·chartAnalysis 150자 이상 — 로드맵의 250자 기준과 다름, 확인 필요), 종목 필터링 누락·오류"

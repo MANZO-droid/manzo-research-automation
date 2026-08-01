@@ -1,0 +1,39 @@
+{
+  "schema": "semiclass-file-index/v1",
+  "updated_at": "2026-08-01T07:19:48.133Z",
+  "files": [
+    {
+      "path": "input/manzo-real-2026-07-13-049080.txt",
+      "name": "manzo-real-2026-07-13-049080.txt",
+      "size": 1820,
+      "updated_at": "2026-08-01T07:09:52.634Z",
+      "sha256": "24d3c69b175cadc3f97ec3ca17cae6735b45d06f1834208b9ac2c86d484ea818",
+      "role": "input",
+      "status": "approved",
+      "source": "student",
+      "indexed_at": "2026-08-01T07:19:48.133Z"
+    },
+    {
+      "path": "reference/policies/confirmed-rules.md",
+      "name": "confirmed-rules.md",
+      "size": 744,
+      "updated_at": "2026-08-01T07:09:52.639Z",
+      "sha256": "f5a70a5a54e1f2896b4b0428746f2d9263be9f96efbc2ee9d020a76ed48f1960",
+      "role": "policy",
+      "status": "approved",
+      "source": "student",
+      "indexed_at": "2026-08-01T07:19:48.133Z"
+    },
+    {
+      "path": "reference/policies/manzo-output-contract.md",
+      "name": "manzo-output-contract.md",
+      "size": 3789,
+      "updated_at": "2026-08-01T07:09:52.638Z",
+      "sha256": "e9562c5532d07d8a055599c8253983e96bf08e9b91c06b445ae662449ca9cdc2",
+      "role": "policy",
+      "status": "approved",
+      "source": "student",
+      "indexed_at": "2026-08-01T07:19:48.133Z"
+    }
+  ]
+}

@@ -1,0 +1,1343 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>나의 업무자동화 지도</title>
+    <style>
+      :root {
+        --canvas: #e8eef5;
+        --surface: #ffffff;
+        --surface-soft: #f6f8fb;
+        --ink: #142034;
+        --muted: #66758b;
+        --line: #d8e0ea;
+        --blue: #275efe;
+        --blue-soft: #eaf0ff;
+        --teal: #0b9a88;
+        --teal-soft: #e2f7f3;
+        --orange: #ee7b2b;
+        --orange-soft: #fff1e7;
+        --red: #d94c4c;
+        --red-soft: #ffeded;
+        --shadow: 0 12px 30px rgba(31, 48, 76, 0.08);
+        --radius: 18px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--ink);
+        background:
+          linear-gradient(rgba(71, 96, 130, 0.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(71, 96, 130, 0.045) 1px, transparent 1px), var(--canvas);
+        background-size: 24px 24px;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .shell {
+        width: min(1600px, calc(100% - 36px));
+        margin: 18px auto 42px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        min-height: 92px;
+        padding: 20px 26px;
+        color: #fff;
+        background: #142034;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+      }
+
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      .map-mark {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        flex: 0 0 auto;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .map-mark::before,
+      .map-mark::after {
+        position: absolute;
+        content: "";
+      }
+
+      .map-mark::before {
+        inset: 11px;
+        border: 2px solid #77e1d3;
+        border-radius: 50% 50% 50% 8px;
+        transform: rotate(-45deg);
+      }
+
+      .map-mark::after {
+        top: 20px;
+        left: 20px;
+        width: 6px;
+        height: 6px;
+        background: #fff;
+        border-radius: 50%;
+      }
+
+      .eyebrow {
+        margin: 0 0 3px;
+        color: #9eabc0;
+        font-size: 11px;
+        font-weight: 760;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        overflow: hidden;
+        margin-bottom: 2px;
+        font-size: clamp(20px, 2vw, 29px);
+        font-weight: 800;
+        letter-spacing: -0.035em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .purpose {
+        overflow: hidden;
+        margin: 0;
+        color: #b9c4d5;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .top-status {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        flex: 0 0 auto;
+      }
+
+      .stage-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        color: #bdf4eb;
+        background: rgba(11, 154, 136, 0.18);
+        border: 1px solid rgba(119, 225, 211, 0.32);
+        border-radius: 999px;
+        font-weight: 750;
+      }
+
+      .stage-pill::before {
+        width: 7px;
+        height: 7px;
+        content: "";
+        background: #77e1d3;
+        border-radius: 50%;
+        box-shadow: 0 0 0 4px rgba(119, 225, 211, 0.12);
+      }
+
+      .updated {
+        color: #9eabc0;
+        font-size: 12px;
+        text-align: right;
+      }
+
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: 280px minmax(520px, 1fr) 300px;
+        gap: 16px;
+        margin-top: 16px;
+        align-items: start;
+      }
+
+      .column {
+        display: grid;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      .right-column {
+        align-items: start;
+      }
+
+      .card {
+        min-width: 0;
+        padding: 20px;
+        background: var(--surface);
+        border: 1px solid rgba(179, 194, 213, 0.74);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+
+      .card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .card-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 820;
+        letter-spacing: -0.02em;
+      }
+
+      .card-caption {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .count-badge {
+        min-width: 28px;
+        padding: 4px 8px;
+        color: var(--blue);
+        background: var(--blue-soft);
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+        text-align: center;
+      }
+
+      .route-map {
+        position: relative;
+        display: grid;
+        gap: 22px;
+      }
+
+      .route-map::before {
+        position: absolute;
+        top: 32px;
+        bottom: 32px;
+        left: 18px;
+        width: 2px;
+        content: "";
+        background: linear-gradient(var(--blue), var(--teal) 65%, var(--orange));
+      }
+
+      .route-stop {
+        position: relative;
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 11px;
+        align-items: start;
+      }
+
+      .stop-index {
+        z-index: 1;
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        color: #fff;
+        background: var(--blue);
+        border: 4px solid #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(39, 94, 254, 0.25);
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .route-stop.process .stop-index {
+        background: var(--teal);
+      }
+
+      .route-stop.output .stop-index {
+        background: var(--orange);
+      }
+
+      .route-body {
+        min-width: 0;
+        padding: 11px 12px;
+        background: var(--surface-soft);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      .route-label {
+        margin-bottom: 2px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 820;
+        letter-spacing: 0.1em;
+      }
+
+      .route-value {
+        overflow: hidden;
+        margin: 0;
+        font-weight: 760;
+        text-overflow: ellipsis;
+      }
+
+      .route-meta,
+      .mini-note {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .file-chip-list,
+      .tool-list,
+      .format-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 9px;
+      }
+
+      .file-chip,
+      .format-chip,
+      .tool-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        max-width: 100%;
+        padding: 5px 8px;
+        border-radius: 7px;
+        font-size: 10px;
+        font-weight: 720;
+      }
+
+      .file-chip {
+        color: #4b5b72;
+        background: #eef2f7;
+      }
+
+      .file-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .format-chip {
+        color: #176e63;
+        background: var(--teal-soft);
+      }
+
+      .empty-direction {
+        padding: 10px;
+        color: #6c583d;
+        background: #fff8e9;
+        border: 1px solid #f1dfb9;
+        border-radius: 9px;
+        font-size: 11px;
+      }
+
+      .tabs {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        background: #edf1f6;
+        border-radius: 10px;
+      }
+
+      .tab {
+        padding: 7px 10px;
+        color: var(--muted);
+        background: transparent;
+        border: 0;
+        border-radius: 7px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      .tab[aria-selected="true"] {
+        color: var(--ink);
+        background: #fff;
+        box-shadow: 0 2px 7px rgba(31, 48, 76, 0.12);
+      }
+
+      .tab:focus-visible {
+        outline: 3px solid rgba(39, 94, 254, 0.28);
+        outline-offset: 2px;
+      }
+
+      .tab-panel[hidden] {
+        display: none;
+      }
+
+      .flow-canvas {
+        position: relative;
+        min-height: 318px;
+        overflow: hidden;
+        padding: 28px;
+        background:
+          radial-gradient(circle at 82% 16%, rgba(39, 94, 254, 0.1), transparent 27%), #f8fafc;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+      }
+
+      .flow-line {
+        position: absolute;
+        top: 50%;
+        right: 12%;
+        left: 12%;
+        height: 3px;
+        background: linear-gradient(90deg, var(--blue), var(--teal), var(--orange));
+        border-radius: 99px;
+        transform: translateY(-50%);
+      }
+
+      .flow-line::after {
+        position: absolute;
+        top: 50%;
+        right: -2px;
+        width: 10px;
+        height: 10px;
+        content: "";
+        border-top: 3px solid var(--orange);
+        border-right: 3px solid var(--orange);
+        transform: translateY(-50%) rotate(45deg);
+      }
+
+      .flow-nodes {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(100px, 1fr));
+        gap: 16px;
+        min-height: 260px;
+        align-items: center;
+      }
+
+      .flow-node {
+        min-width: 0;
+        padding: 14px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-top: 4px solid var(--blue);
+        border-radius: 13px;
+        box-shadow: 0 8px 22px rgba(31, 48, 76, 0.1);
+      }
+
+      .flow-node.process-node {
+        border-top-color: var(--teal);
+      }
+
+      .flow-node.output-node {
+        border-top-color: var(--orange);
+      }
+
+      .node-type {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 850;
+        letter-spacing: 0.12em;
+      }
+
+      .node-name {
+        display: block;
+        overflow: hidden;
+        font-weight: 820;
+        text-overflow: ellipsis;
+      }
+
+      .node-detail {
+        display: -webkit-box;
+        overflow: hidden;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 11px;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+      }
+
+      .graph-canvas {
+        position: relative;
+        min-height: 318px;
+        overflow: hidden;
+        background: #111c2d;
+        border-radius: 15px;
+      }
+
+      .graph-canvas svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .graph-node {
+        position: absolute;
+        display: grid;
+        place-items: center;
+        width: 112px;
+        min-height: 56px;
+        padding: 9px;
+        color: #ecf2fb;
+        background: #21314b;
+        border: 1px solid #3a4c68;
+        border-radius: 14px;
+        font-size: 11px;
+        font-weight: 760;
+        text-align: center;
+        transform: translate(-50%, -50%);
+      }
+
+      .graph-node.primary {
+        color: #fff;
+        background: #244ec6;
+        border-color: #5880f5;
+        box-shadow: 0 0 0 7px rgba(39, 94, 254, 0.14);
+      }
+
+      .log-card {
+        padding-bottom: 14px;
+      }
+
+      .log-table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        white-space: nowrap;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #e8edf3;
+        font-size: 11px;
+        text-align: left;
+      }
+
+      th {
+        color: var(--muted);
+        background: #f6f8fb;
+        font-weight: 780;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .event-message {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .status-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 6px;
+        background: var(--blue);
+        border-radius: 50%;
+      }
+
+      .roadmap-summary {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .roadmap-percent {
+        font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+        font-size: 31px;
+        font-weight: 850;
+        letter-spacing: -0.06em;
+      }
+
+      .progress-track {
+        height: 8px;
+        overflow: hidden;
+        background: #e6ebf1;
+        border-radius: 99px;
+      }
+
+      .progress-bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, var(--blue), var(--teal));
+        border-radius: inherit;
+        transition: width 0.45s ease;
+      }
+
+      .stage-list {
+        display: grid;
+        gap: 7px;
+        margin-top: 15px;
+      }
+
+      .stage-item {
+        display: grid;
+        grid-template-columns: 18px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        padding: 7px 8px;
+        border-radius: 8px;
+      }
+
+      .stage-item.current {
+        background: var(--blue-soft);
+      }
+
+      .stage-marker {
+        display: grid;
+        place-items: center;
+        width: 17px;
+        height: 17px;
+        color: #fff;
+        background: #c4ceda;
+        border-radius: 50%;
+        font-size: 9px;
+        font-weight: 850;
+      }
+
+      .stage-item.done .stage-marker {
+        background: var(--teal);
+      }
+
+      .stage-item.current .stage-marker {
+        background: var(--blue);
+      }
+
+      .stage-status {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .next-action {
+        margin-top: 15px;
+        padding: 12px;
+        color: #223d70;
+        background: var(--blue-soft);
+        border: 1px solid #cfdbff;
+        border-radius: 11px;
+      }
+
+      .next-action strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 11px;
+      }
+
+      .tool-chip {
+        color: #31435e;
+        background: #eef2f7;
+        border: 1px solid #dce3ec;
+      }
+
+      .tool-chip::before {
+        width: 7px;
+        height: 7px;
+        content: "";
+        background: #aab6c6;
+        border-radius: 50%;
+      }
+
+      .tool-chip.ready::before {
+        background: var(--teal);
+      }
+
+      .tool-chip.planned::before {
+        background: var(--orange);
+      }
+
+      .info-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .info-row {
+        display: grid;
+        grid-template-columns: 82px 1fr;
+        gap: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #e7ecf2;
+      }
+
+      .info-row:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .info-label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .info-value {
+        overflow-wrap: anywhere;
+        font-size: 11px;
+        font-weight: 720;
+      }
+
+      .warning-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .warning-item {
+        padding: 10px;
+        color: #7b4c2c;
+        background: var(--orange-soft);
+        border: 1px solid #f4d4bb;
+        border-radius: 9px;
+        font-size: 11px;
+      }
+
+      .footer-note {
+        margin-top: 16px;
+        color: #6f7d91;
+        font-size: 11px;
+        text-align: center;
+      }
+
+      @media (max-width: 1180px) {
+        .dashboard-grid {
+          grid-template-columns: 260px minmax(0, 1fr);
+        }
+
+        .right-column {
+          grid-column: 1 / -1;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 900px) {
+        .dashboard-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .center-column {
+          grid-row: 1;
+        }
+
+        .left-column {
+          grid-row: 2;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .right-column {
+          grid-column: auto;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .right-column #warnings-card {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          width: min(100% - 20px, 620px);
+          margin-top: 10px;
+        }
+
+        .topbar {
+          align-items: flex-start;
+          padding: 18px;
+          border-radius: 17px;
+        }
+
+        .map-mark {
+          display: none;
+        }
+
+        .purpose {
+          display: -webkit-box;
+          white-space: normal;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+        }
+
+        .top-status {
+          display: grid;
+          justify-items: end;
+          gap: 8px;
+        }
+
+        .updated {
+          display: none;
+        }
+
+        .dashboard-grid,
+        .right-column {
+          grid-template-columns: 1fr;
+        }
+
+        .right-column {
+          grid-column: auto;
+        }
+
+        .center-column {
+          grid-row: 1;
+        }
+
+        .left-column {
+          grid-row: 2;
+          grid-template-columns: 1fr;
+        }
+
+        .flow-nodes {
+          grid-template-columns: 1fr !important;
+          align-items: stretch;
+        }
+
+        .flow-line {
+          top: 10%;
+          right: auto;
+          bottom: 10%;
+          left: 42px;
+          width: 3px;
+          height: auto;
+          transform: none;
+        }
+
+        .flow-line::after {
+          top: auto;
+          right: auto;
+          bottom: -2px;
+          left: 50%;
+          transform: translateX(-50%) rotate(135deg);
+        }
+
+        .flow-node {
+          margin-left: 32px;
+        }
+
+        .graph-node {
+          width: 92px;
+          font-size: 10px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-row">
+          <div class="map-mark" aria-hidden="true"></div>
+          <div style="min-width: 0">
+            <p class="eyebrow">Automation field map</p>
+            <h1 id="automation-name">나의 업무자동화 지도</h1>
+            <p class="purpose" id="automation-purpose">자동화 데이터를 불러오는 중입니다.</p>
+          </div>
+        </div>
+        <div class="top-status">
+          <span class="stage-pill" id="current-stage">현재 단계 확인 중</span>
+          <div class="updated">
+            마지막 동기화<br />
+            <strong id="updated-at">—</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="dashboard-grid">
+        <aside class="column left-column">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">입력 → 처리 → 결과</h2>
+                <p class="card-caption">자동화가 움직이는 순서</p>
+              </div>
+            </div>
+            <div class="route-map" id="route-map"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">등록된 자료</h2>
+                <p class="card-caption">실제 파일과 승인된 참고자료</p>
+              </div>
+              <span class="count-badge" id="file-total">0</span>
+            </div>
+            <div class="info-list" id="file-counts"></div>
+          </section>
+        </aside>
+
+        <section class="column center-column">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">자동화 설계도</h2>
+                <p class="card-caption">흐름과 자료 관계를 한 화면에서 확인합니다</p>
+              </div>
+              <div class="tabs" role="tablist" aria-label="설계도 보기 방식">
+                <button
+                  class="tab"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="flow-panel"
+                  id="flow-tab"
+                >
+                  자동화 흐름
+                </button>
+                <button
+                  class="tab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="graph-panel"
+                  id="graph-tab"
+                >
+                  자료 관계
+                </button>
+              </div>
+            </div>
+
+            <div class="tab-panel" id="flow-panel" role="tabpanel" aria-labelledby="flow-tab">
+              <div class="flow-canvas">
+                <div class="flow-line" aria-hidden="true"></div>
+                <div class="flow-nodes" id="flow-nodes"></div>
+              </div>
+            </div>
+            <div
+              class="tab-panel"
+              id="graph-panel"
+              role="tabpanel"
+              aria-labelledby="graph-tab"
+              hidden
+            >
+              <div class="graph-canvas" id="graph-canvas"></div>
+            </div>
+          </section>
+
+          <section class="card log-card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">자동화 실행 로그</h2>
+                <p class="card-caption" id="latest-run-summary">아직 실제 실행이 없습니다</p>
+              </div>
+              <span class="count-badge" id="event-count">0</span>
+            </div>
+            <div class="log-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>시간</th>
+                    <th>상태</th>
+                    <th>내용</th>
+                    <th>실행</th>
+                  </tr>
+                </thead>
+                <tbody id="event-rows"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <aside class="column right-column">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">전체 로드맵</h2>
+                <p class="card-caption">지금 어디까지 왔는지</p>
+              </div>
+            </div>
+            <div class="roadmap-summary">
+              <div>
+                <p class="eyebrow" style="color: var(--muted)">Progress</p>
+                <div class="roadmap-percent" id="roadmap-percent">0%</div>
+              </div>
+              <span class="count-badge" id="roadmap-count">0/0</span>
+            </div>
+            <div
+              class="progress-track"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              id="progress-track"
+            >
+              <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="stage-list" id="stage-list"></div>
+            <div class="next-action">
+              <strong>다음 이정표</strong>
+              <span id="next-action">확인 필요</span>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">연결 도구</h2>
+                <p class="card-caption">자동화가 접근하는 서비스</p>
+              </div>
+            </div>
+            <div class="tool-list" id="tool-list"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">실행 환경</h2>
+                <p class="card-caption">어디서, 어떻게 실행되는지</p>
+              </div>
+            </div>
+            <div class="info-list" id="runtime-info"></div>
+          </section>
+
+          <section class="card" id="warnings-card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">확인할 것</h2>
+                <p class="card-caption">다음 실행 전에 필요한 조치</p>
+              </div>
+            </div>
+            <div class="warning-list" id="warning-list"></div>
+          </section>
+        </aside>
+      </section>
+
+      <p class="footer-note">
+        설계·파일·실행 로그를 기준으로 생성된 화면입니다. 파생 화면보다 원본 데이터를 먼저 고칩니다.
+      </p>
+    </main>
+
+    <script id="dashboard-data" type="application/json">
+      __SEMICLASS_DASHBOARD_DATA__
+    </script>
+    <script>
+      (() => {
+        const data = JSON.parse(document.getElementById("dashboard-data").textContent);
+        const $ = (selector) => document.querySelector(selector);
+        const create = (tag, className, text) => {
+          const element = document.createElement(tag);
+          if (className) element.className = className;
+          if (text !== undefined) element.textContent = text;
+          return element;
+        };
+        const list = (value) => (Array.isArray(value) ? value : []);
+        const formatDate = (value) => {
+          if (!value) return "—";
+          const date = new Date(value);
+          if (Number.isNaN(date.getTime())) return String(value);
+          return new Intl.DateTimeFormat("ko-KR", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          }).format(date);
+        };
+        const statusLabel = {
+          done: "완료",
+          in_progress: "진행 중",
+          pending: "예정",
+          blocked: "중단",
+          succeeded: "성공",
+          failed: "실패",
+          running: "실행 중",
+        };
+        const warningLabel = {
+          no_actual_input: "실제 입력이 아직 없습니다. input/에 승인된 원본을 추가하세요.",
+          legacy_archive_available: "이전 구조는 숨김 복구 보관소에 안전하게 보관되어 있습니다.",
+          course_sample_excluded: "강의 공통 샘플은 실제 입력과 결과 집계에서 제외했습니다.",
+          mock_output_excluded: "목 입력으로 만든 결과는 실제 실행 기록에서 제외했습니다.",
+          virtual_design_confirmation_required:
+            "현재 설계가 본인의 실제 자동화인지 확인이 필요합니다.",
+          legacy_structure_detected: "지난 수업의 확장형 구조가 남아 있어 간소화가 필요합니다.",
+        };
+
+        document.title = `${data.automation.name} · 나의 업무자동화 지도`;
+        $("#automation-name").textContent = data.automation.name;
+        $("#automation-purpose").textContent = data.automation.purpose;
+        $("#current-stage").textContent = `현재 · ${data.roadmap.current_stage_name}`;
+        $("#updated-at").textContent = formatDate(data.updated_at);
+
+        const chipList = (values, className = "file-chip") => {
+          const container = create("div", "file-chip-list");
+          list(values).forEach((value) => {
+            const chip = create("span", className);
+            chip.append(create("span", "", typeof value === "string" ? value : value.name));
+            container.append(chip);
+          });
+          return container;
+        };
+
+        const routeData = [
+          {
+            type: "trigger",
+            index: "GO",
+            label: "시작 조건",
+            value: data.flow.trigger,
+            meta: "사람 또는 일정이 자동화를 시작합니다",
+          },
+          {
+            type: "input",
+            index: "IN",
+            label: "입력",
+            value: data.flow.input_description,
+            meta: `${data.files.input}개 실제 파일`,
+            chips: data.flow.input_forms,
+          },
+          {
+            type: "process",
+            index: "AI",
+            label: "처리",
+            value:
+              data.flow.process.length > 0
+                ? data.flow.process.map((step) => step.name).join(" → ")
+                : "처리 단계 확인 필요",
+            meta: `${data.flow.process.length}개 단계 · 사람 확인 ${
+              data.flow.process.filter((step) => step.human_gate).length
+            }곳`,
+          },
+          {
+            type: "output",
+            index: "OUT",
+            label: "결과",
+            value: data.flow.output_description,
+            meta: data.flow.output_path,
+            chips: data.flow.output_forms,
+          },
+        ];
+
+        routeData.forEach((item) => {
+          const stop = create("div", `route-stop ${item.type}`);
+          stop.append(create("div", "stop-index", item.index));
+          const body = create("div", "route-body");
+          body.append(create("div", "route-label", item.label));
+          body.append(create("p", "route-value", item.value));
+          body.append(create("p", "route-meta", item.meta));
+          if (item.chips?.length) body.append(chipList(item.chips));
+          if (item.type === "input" && data.files.input === 0) {
+            body.append(
+              create("div", "empty-direction", "실제 입력을 넣으면 여기서 자동 인식합니다."),
+            );
+          }
+          stop.append(body);
+          $("#route-map").append(stop);
+        });
+
+        const fileLabels = {
+          input: "실제 입력",
+          input_form: "입력 양식",
+          output_form: "결과 양식",
+          policy: "정책·규칙",
+          example: "승인 예시",
+          output: "실행 결과",
+        };
+        let fileTotal = 0;
+        Object.entries(fileLabels).forEach(([role, label]) => {
+          const count = Number(data.files[role] ?? 0);
+          fileTotal += count;
+          const row = create("div", "info-row");
+          row.append(create("div", "info-label", label));
+          row.append(create("div", "info-value", `${count}개`));
+          $("#file-counts").append(row);
+        });
+        $("#file-total").textContent = String(fileTotal);
+
+        const middleProcess = data.flow.process.length
+          ? data.flow.process
+          : [{ name: "처리 확인 필요", description: "대화에서 처리 단계를 확정하세요" }];
+        const flowNodes = [
+          {
+            type: "INPUT",
+            name: data.flow.input_description,
+            detail: `${data.files.input}개 파일 · ${list(data.flow.input_formats).join(", ") || "형식 확인 필요"}`,
+            className: "",
+          },
+          ...middleProcess.map((step, index) => ({
+            type: `PROCESS ${String(index + 1).padStart(2, "0")}`,
+            name: step.name,
+            detail: step.description,
+            className: "process-node",
+          })),
+          {
+            type: "OUTPUT",
+            name: data.flow.output_description,
+            detail: `${data.files.output}개 결과 · ${list(data.flow.output_formats).join(", ") || "형식 확인 필요"}`,
+            className: "output-node",
+          },
+        ];
+        $("#flow-nodes").style.gridTemplateColumns =
+          `repeat(${flowNodes.length}, minmax(100px, 1fr))`;
+        flowNodes.forEach((item) => {
+          const node = create("div", `flow-node ${item.className}`.trim());
+          node.append(create("span", "node-type", item.type));
+          node.append(create("span", "node-name", item.name));
+          node.append(create("span", "node-detail", item.detail));
+          $("#flow-nodes").append(node);
+        });
+
+        const graph = $("#graph-canvas");
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 100 100");
+        svg.setAttribute("preserveAspectRatio", "none");
+        const graphNodes = [
+          { x: 50, y: 50, label: data.automation.name, primary: true },
+          { x: 16, y: 24, label: `입력 ${data.files.input}개` },
+          {
+            x: 18,
+            y: 76,
+            label: `참고자료 ${data.files.output_form + data.files.policy + data.files.example}개`,
+          },
+          { x: 81, y: 24, label: `${data.flow.process.length}개 처리 단계` },
+          { x: 82, y: 76, label: `결과 ${data.files.output}개` },
+        ];
+        graphNodes.slice(1).forEach((node) => {
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", "50");
+          line.setAttribute("y1", "50");
+          line.setAttribute("x2", String(node.x));
+          line.setAttribute("y2", String(node.y));
+          line.setAttribute("stroke", "#48617f");
+          line.setAttribute("stroke-width", "0.7");
+          svg.append(line);
+        });
+        graph.append(svg);
+        graphNodes.forEach((item) => {
+          const node = create("div", `graph-node${item.primary ? " primary" : ""}`, item.label);
+          node.style.left = `${item.x}%`;
+          node.style.top = `${item.y}%`;
+          graph.append(node);
+        });
+
+        const events = list(data.recent_events);
+        $("#event-count").textContent = String(events.length);
+        if (data.latest_run) {
+          $("#latest-run-summary").textContent = `최근 실행 ${data.latest_run.run_id} · ${
+            statusLabel[data.latest_run.status] || data.latest_run.status
+          }`;
+        }
+        if (events.length === 0) {
+          const row = create("tr");
+          const cell = create("td", "", "아직 기록된 활동이 없습니다.");
+          cell.colSpan = 4;
+          row.append(cell);
+          $("#event-rows").append(row);
+        } else {
+          events.forEach((event) => {
+            const row = create("tr");
+            row.append(create("td", "", formatDate(event.occurred_at)));
+            const typeCell = create("td");
+            typeCell.append(create("span", "status-dot"));
+            typeCell.append(document.createTextNode(event.event_type || "event"));
+            row.append(typeCell);
+            row.append(create("td", "event-message", event.message || "—"));
+            row.append(create("td", "", event.run_id || "—"));
+            $("#event-rows").append(row);
+          });
+        }
+
+        $("#roadmap-percent").textContent = `${data.roadmap.percent}%`;
+        $("#roadmap-count").textContent = `${data.roadmap.completed}/${data.roadmap.total}`;
+        $("#progress-bar").style.width = `${data.roadmap.percent}%`;
+        $("#progress-track").setAttribute("aria-valuenow", String(data.roadmap.percent));
+        $("#next-action").textContent = data.roadmap.next_action;
+        list(data.roadmap.stages).forEach((stage, index) => {
+          const classNames = ["stage-item", stage.status];
+          if (stage.id === data.roadmap.current_stage) classNames.push("current");
+          const item = create("div", classNames.join(" "));
+          item.append(
+            create("span", "stage-marker", stage.status === "done" ? "✓" : String(index + 1)),
+          );
+          item.append(create("span", "", stage.name || stage.id));
+          item.append(create("span", "stage-status", statusLabel[stage.status] || stage.status));
+          $("#stage-list").append(item);
+        });
+
+        const tools = list(data.tools);
+        if (tools.length === 0) {
+          $("#tool-list").append(create("span", "mini-note", "연결된 외부 도구가 없습니다."));
+        } else {
+          tools.forEach((tool) => {
+            const name = typeof tool === "string" ? tool : tool.name;
+            const status = typeof tool === "string" ? "planned" : tool.status || "planned";
+            $("#tool-list").append(create("span", `tool-chip ${status}`, name));
+          });
+        }
+
+        const runtimeRows = [
+          ["실행 위치", data.runtime.location],
+          ["작업 도구", data.runtime.service],
+          ["실행 방식", data.runtime.mode],
+          ["시작 조건", data.flow.trigger],
+          [
+            "예약",
+            list(data.schedules).length
+              ? list(data.schedules)
+                  .map((schedule) => (typeof schedule === "string" ? schedule : schedule.name))
+                  .join(", ")
+              : "등록 없음",
+          ],
+        ];
+        runtimeRows.forEach(([label, value]) => {
+          const row = create("div", "info-row");
+          row.append(create("div", "info-label", label));
+          row.append(create("div", "info-value", value));
+          $("#runtime-info").append(row);
+        });
+
+        const warnings = list(data.warnings);
+        if (warnings.length === 0) {
+          $("#warnings-card").hidden = true;
+        } else {
+          warnings.forEach((warning) => {
+            $("#warning-list").append(
+              create("div", "warning-item", warningLabel[warning] || warning),
+            );
+          });
+        }
+
+        const tabs = [...document.querySelectorAll('[role="tab"]')];
+        tabs.forEach((tab) => {
+          tab.addEventListener("click", () => {
+            tabs.forEach((candidate) => {
+              const active = candidate === tab;
+              candidate.setAttribute("aria-selected", String(active));
+              const panel = document.getElementById(candidate.getAttribute("aria-controls"));
+              panel.hidden = !active;
+            });
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

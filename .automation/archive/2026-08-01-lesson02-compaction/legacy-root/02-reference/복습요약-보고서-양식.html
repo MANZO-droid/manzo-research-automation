@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>복습요약 보고서 양식</title>
+    <style>
+      @page { size: A4; margin: 11mm; }
+      :root { --blue:#1e55b3; --soft:#eef4ff; --line:#d7e0ee; --ink:#14213a; --muted:#66758e; }
+      * { box-sizing:border-box; }
+      body { margin:0; color:var(--ink); font-family:"Apple SD Gothic Neo","Noto Sans KR",sans-serif; line-height:1.35; word-break:keep-all; }
+      .eyebrow { margin:0 0 4px; color:var(--blue); font-size:9px; font-weight:800; letter-spacing:.08em; }
+      h1 { margin:0; font-size:24px; letter-spacing:-.04em; }
+      .meta { margin:5px 0 14px; color:var(--muted); font-size:10px; }
+      .summary { padding:11px 13px; border-radius:10px; background:var(--soft); }
+      .summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      .label { display:block; margin-bottom:3px; color:var(--muted); font-size:9px; font-weight:800; }
+      .value { font-size:11px; font-weight:700; }
+      section { margin-top:13px; }
+      h2 { margin:0 0 6px; font-size:14px; }
+      .box,.slide { padding:9px 11px; border:1px solid var(--line); border-radius:8px; }
+      .box + .box,.slide + .slide { margin-top:6px; }
+      .placeholder { color:var(--muted); font-size:10px; }
+      .slide b { display:block; color:var(--blue); font-size:10px; }
+      .slide p { margin:3px 0 0; font-size:10px; }
+      .link { color:var(--blue); font-size:9px; }
+      footer { margin-top:13px; padding-top:7px; border-top:1px solid var(--line); color:var(--muted); font-size:8px; }
+    </style>
+  </head>
+  <body>
+    <p class="eyebrow">LECTURE RECAP</p>
+    <h1>{{강의 제목}}</h1>
+    <p class="meta">{{강의 날짜}} · {{강의 회차}} · 작성 상태: {{초안 또는 검토 완료}}</p>
+    <div class="summary">
+      <div class="summary-grid">
+        <div><span class="label">한 줄 요약</span><span class="value">{{한 줄 요약}}</span></div>
+        <div><span class="label">핵심 산출물</span><span class="value">{{핵심 산출물}}</span></div>
+      </div>
+      <div style="margin-top:12px"><span class="label">복습 순서</span><span class="value">{{복습 순서}}</span></div>
+    </div>
+    <section>
+      <h2>주제별 요약</h2>
+      <div class="box"><b>{{주제 1}}</b><p class="placeholder">{{원본에 근거한 요약}}</p></div>
+      <div class="box"><b>{{주제 2}}</b><p class="placeholder">{{원본에 근거한 요약}}</p></div>
+    </section>
+    <section>
+      <h2>슬라이드별 핵심과 강사 설명</h2>
+      <article class="slide"><b>슬라이드 {{번호}} · {{슬라이드 제목}}</b><p><strong>핵심</strong> {{덱의 핵심 내용}}</p><p><strong>강사 설명</strong> {{STT에서 확인한 설명}}</p><p class="link">자료 링크: {{강의자료 상대경로}} · {{피칭 덱 슬라이드 상대경로}}</p></article>
+      <article class="slide"><b>슬라이드 {{번호}} · {{슬라이드 제목}}</b><p><strong>핵심</strong> {{덱의 핵심 내용}}</p><p><strong>강사 설명</strong> {{STT에서 확인한 설명}}</p><p class="link">자료 링크: {{강의자료 상대경로}} · {{피칭 덱 슬라이드 상대경로}}</p></article>
+    </section>
+    <section>
+      <h2>검토와 배포</h2>
+      <div class="box"><span class="label">확인 필요 또는 사람 검토</span><span class="value">{{불명확한 STT, 링크, 배포 범위}}</span></div>
+      <div class="box"><span class="label">Discord 안내</span><span class="value">{{채널 ID·권한·첨부·최종 문구·명시적 승인 전에는 발송 대기}}</span></div>
+    </section>
+    <footer>이 양식의 필수 섹션 순서는 유지합니다. 실제 결과는 이 파일을 복사해 03-output에 저장합니다.</footer>
+  </body>
+</html>

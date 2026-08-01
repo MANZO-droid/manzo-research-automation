@@ -1,0 +1,36 @@
+{
+  "schema": "semiclass-intake/v1",
+  "updated_at": "2026-08-01T00:00:00+09:00",
+  "open_questions": [
+    {
+      "question": "연휴 판별(토요일 + 앞선 평일이 휴일인 경우 첫 휴일 기준)을 스케줄 트리거가 자동 판별할 방법",
+      "source": "design/automation-blueprint.md 원문 \"시작 신호\" 확인 필요",
+      "status": "확인 필요"
+    },
+    {
+      "question": "API 키 등 인증정보가 정확히 어떤 파일에 있고 Git에 커밋되지 않는지",
+      "source": "design/automation-blueprint.md 원문 \"입력자료\" 확인 필요",
+      "status": "확인 필요"
+    },
+    {
+      "question": "\"게시\"에 실제 git push 배포까지 AI가 수행하는 것을 의미하는지",
+      "source": "design/automation-blueprint.md 원문 \"AI 역할\" 확인 필요",
+      "status": "확인 필요"
+    },
+    {
+      "question": "일간/주간 데이터를 구분해서 보여줄지, 덮어쓸지",
+      "source": "design/automation-blueprint.md 원문 \"결과물\" 확인 필요",
+      "status": "확인 필요"
+    },
+    {
+      "question": "제미나이 무료 한도 초과 시 대안(다른 무료 모델, 재시도 로직 등)",
+      "source": "design/automation-blueprint.md 원문 \"필요 도구\" 확인 필요",
+      "status": "확인 필요"
+    },
+    {
+      "question": "실패 알림을 받을 채널(이메일 등)",
+      "source": "progress/roadmap.md(구 경로) \"다음 시간 준비물\"",
+      "status": "확인 필요"
+    }
+  ]
+}
