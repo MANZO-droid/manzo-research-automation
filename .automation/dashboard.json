@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-01T11:33:46.670Z",
+  "updated_at": "2026-08-01T11:36:25.354Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,16 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-9c99cb49-08f3-4f0f-bbfc-0bf738dbe6f4",
+      "event_type": "bugfix",
+      "occurred_at": "2026-08-01T11:36:25.166Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "전체 날짜(14개)에 대해 prev_rank/prev_trade_amount를 SQL UPDATE로 일괄 backfill(각 날짜를 volume_stocks에 존재하는 직전 날짜와 티커 매칭). 사이트 API로 여러 날짜 실측 확인 - 초기일(7/2)은 이전 데이터가 없어 정상적으로 전부 null",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-798fc7e0-4383-4e7b-ac2b-c6cf9c89edce",
       "event_type": "bugfix",
       "occurred_at": "2026-08-01T11:33:46.502Z",
@@ -301,16 +311,6 @@
       "actor": "agent",
       "run_id": null,
       "message": "design/roadmap.yaml 생성 — progress/roadmap.md의 4주 타임라인을 5단계(design/prepare/first_run/verify/operate)로 매핑, 완료 증거 없는 단계는 pending 유지",
-      "data": {}
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-0004-design-updated",
-      "event_type": "design.updated",
-      "occurred_at": "2026-08-01T05:40:00+09:00",
-      "actor": "agent",
-      "run_id": null,
-      "message": "design/automation.yaml 생성 — automation-blueprint.md와 workflow/WORKFLOW.md의 실제 흐름(개인 자동화 8단계)을 통합",
       "data": {}
     }
   ],
