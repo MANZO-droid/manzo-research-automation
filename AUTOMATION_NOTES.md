@@ -401,3 +401,22 @@ volumeStocks가 비어있는 날짜: 없음 (현재 파일에 있는 모든 날�
 실제 평일 크론(20:00 UTC)으로 자동 실행될 때 `GEMINI_API_KEY` 시크릿이
 정상 동작하는지 — 로컬 백필로 스크립트 로직 자체는 검증됐지만, GitHub
 Actions 환경에서 아직 자연 발화(크론)로 실행된 적은 없습니다.
+
+### 8-4. 회귀 발견 및 수정: 과거 JSON 데이터가 Supabase로 안 옮겨져 있던 문제
+
+§8-2에서 "앞으로 새로 쓰는 데이터"만 Supabase로 보내도록 파이프라인을
+바꾸고 사이트의 JSON 폴백을 제거했는데, **사이트 저장소에 이미 커밋돼
+있던 과거 날짜들(가장 최근 것 빼고)을 Supabase로 옮기는 걸 빠뜨렸습니다.**
+그 결과 전환 직후 사이트에서 날짜 탭이 2026-08-01·2026-07-12(옛 키움
+파이프라인이 채워둔 것) 두 개만 남는 회귀가 있었습니다. 회장님이 "사이트에
+있던 데이터는 왜 안 들어가 있지?"라고 지적해 주셔서 바로 발견·수정했습니다.
+
+- `scripts/backfill_json_to_supabase.py`(신규, 1회성) — `stock-analysis-data.json`의
+  14개 날짜(gainers 127행 + volumeStocks 140행)와 `market-scope-data.json`의
+  31개 날짜를 읽어 각각 `daily_gainers`/`volume_stocks`/`market_scope_reports`에
+  upsert. 이미 있는 (trade_date, rank, report_type)/(report_date)는 덮어써도
+  안전(재실행 가능한 멱등 스크립트).
+- 실행 후 실측 확인: `/api/top-gainers`에 날짜 15개(과거 14개 + 오늘) 모두
+  gainers·volumeStocks 정상 반환, `/api/market-scope`에 current + history
+  29개(최근 30개 제한 내에서 정상 - 가장 오래된 06-22 1개만 이 제한 밖으로
+  빠짐, API의 `limit=30` 설계상 의도된 동작).
