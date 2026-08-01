@@ -512,6 +512,65 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
 
 # ─── 거래대금 상위(volumeStocks) 수집 ────────────────────────────────────────
 
+def fetch_investor_netbuy(ticker: str, close: int) -> dict:
+    """네이버 종목 페이지(frgn.naver)에서 최신 거래일의 기관·외국인 순매매량(주)을
+    읽어 종가와 곱해 순매수 금액(원)을 근사한다. 개인은 -(기관+외국인)의 역산값
+    (사이트 UI 안내문과 동일한 근사 방식 - index.html의 "※ 개인 순매수는..." 참고)."""
+    try:
+        r = requests.get(
+            f"https://finance.naver.com/item/frgn.naver?code={ticker}",
+            headers=HEADERS, timeout=10,
+        )
+        r.encoding = "euc-kr"
+        soup = BeautifulSoup(r.text, "html.parser")
+        table = soup.select("table")[3]  # "외국인 기관 순매매 거래량" 표(날짜별)
+        for row in table.select("tr"):
+            tds = row.select("td")
+            if len(tds) < 9:
+                continue
+            date_text = tds[0].get_text(strip=True)
+            if not date_text:
+                continue
+            inst_raw = tds[5].get_text(strip=True).replace(",", "").replace("+", "")
+            frgn_raw = tds[6].get_text(strip=True).replace(",", "").replace("+", "")
+            try:
+                inst_shares = int(inst_raw)
+                frgn_shares = int(frgn_raw)
+            except ValueError:
+                continue
+            institution = inst_shares * close
+            foreign = frgn_shares * close
+            individual = -(institution + foreign)
+            return {"individual": individual, "institution": institution, "foreign": foreign}
+    except Exception as e:
+        print(f"    [순매수 수집 오류] {ticker}: {e}")
+    return {"individual": 0, "institution": 0, "foreign": 0}
+
+
+def fetch_prev_volume_stocks() -> dict:
+    """Supabase에서 가장 최근 trade_date의 volume_stocks를 ticker 기준으로 조회해
+    {ticker: {rank, tradeAmount}} 형태로 반환. 오늘 것과 비교해 전일 순위·거래대금을 낸다."""
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    try:
+        r = requests.get(
+            f"{url}/rest/v1/volume_stocks?select=trade_date,rank,ticker,trade_amount"
+            f"&order=trade_date.desc,rank.asc&limit=10",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        rows = r.json()
+        if not rows:
+            return {}
+        latest_date = rows[0]["trade_date"]
+        return {row["ticker"]: {"rank": row["rank"], "tradeAmount": row["trade_amount"]}
+                for row in rows if row["trade_date"] == latest_date}
+    except Exception as e:
+        print(f"  [전일 거래대금 조회 오류] {e}")
+        return {}
+
+
 def fetch_volume_stocks() -> list[dict]:
     stocks = []
     urls = [
@@ -540,6 +599,18 @@ def fetch_volume_stocks() -> list[dict]:
                 close_raw = tds[2].get_text(strip=True).replace(",", "")
                 rate_raw = tds[4].get_text(strip=True).replace("+", "").replace("%", "").replace(",", "")
                 amount_raw = tds[5].get_text(strip=True).replace(",", "") if len(tds) > 5 else "0"
+                # 전일 대비 가격(전일비): <em class="bu_pup|bu_pdn|bu_p2">의 부호 + <span> 숫자
+                price_change = 0
+                em = tds[3].select_one("em")
+                span = tds[3].select_one("span")
+                if em and span:
+                    num_raw = span.get_text(strip=True).replace(",", "")
+                    try:
+                        num = int(num_raw)
+                        classes = em.get("class") or []
+                        price_change = -num if "bu_pdn" in classes else num
+                    except ValueError:
+                        pass
                 try:
                     close = int(close_raw)
                     change_pct = float(rate_raw)
@@ -552,6 +623,7 @@ def fetch_volume_stocks() -> list[dict]:
                     "close": close,
                     "changePct": change_pct,
                     "tradeAmount": trade_amount,
+                    "priceChange": price_change,
                     "naverUrl": f"https://finance.naver.com/item/main.naver?code={ticker}",
                 })
                 if len(stocks) >= 20:
@@ -562,8 +634,15 @@ def fetch_volume_stocks() -> list[dict]:
 
     # 거래대금 내림차순 상위 10개
     top10 = sorted(stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
+
+    prev = fetch_prev_volume_stocks()
     for i, s in enumerate(top10, 1):
         s["rank"] = i
+        p = prev.get(s["ticker"])
+        s["prevRank"] = p["rank"] if p else None
+        s["prevTradeAmount"] = p["tradeAmount"] if p else None
+        s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"])
+        time.sleep(0.3)
     return top10
 
 
@@ -714,6 +793,10 @@ def volume_to_row(date_str: str, v: dict) -> dict:
         "change_pct": v["changePct"],
         "trade_amount": v["tradeAmount"],
         "naver_url": v.get("naverUrl"),
+        "investors": v.get("investors"),
+        "prev_rank": v.get("prevRank"),
+        "price_change": v.get("priceChange"),
+        "prev_trade_amount": v.get("prevTradeAmount"),
         "updated_at": datetime.now(KST).isoformat(),
     }
 

@@ -99,6 +99,10 @@ def backfill_gainers(site_repo: str):
                 "change_pct": v.get("changePct"),
                 "trade_amount": v.get("tradeAmount"),
                 "naver_url": v.get("naverUrl"),
+                "investors": v.get("investors"),
+                "prev_rank": v.get("prevRank"),
+                "price_change": v.get("priceChange"),
+                "prev_trade_amount": v.get("prevTradeAmount"),
                 "updated_at": now,
             })
 
