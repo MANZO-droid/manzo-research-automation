@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-01T10:48:47.435Z",
+  "updated_at": "2026-08-01T11:08:26.232Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -175,6 +175,16 @@
   "latest_run": null,
   "recent_runs": [],
   "recent_events": [
+    {
+      "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-33158b70-8cd1-41ee-883b-7da2f1710b5d",
+      "event_type": "verification",
+      "occurred_at": "2026-08-01T11:08:26.212Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "Supabase 전환 종단 검증 완료: GH Actions gainers-daily 재실행 성공(daily_gainers weekly 7종목 rise_reason 포함 upsert), market_scope_reports 로컬 백필 성공, Vercel API 두 개 모두 최신 데이터 서빙 확인",
+      "data": {}
+    },
     {
       "schema": "semiclass-automation-event/v1",
       "event_id": "evt-5fe87b37-3c0e-4e85-b4e3-d0da63c2ce33",

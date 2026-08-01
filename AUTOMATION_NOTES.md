@@ -374,3 +374,30 @@ volumeStocks가 비어있는 날짜: 없음 (현재 파일에 있는 모든 날�
    판단 — 이제 `collect_gainers.py` 파이프라인이 더 풍부한 데이터(뉴스·
    상승이유·차트분석 포함)로 같은 표를 채우므로, 중복 실행 방지 차원에서
    Vercel Cron을 끄는 걸 권장합니다(AUTOMATION_NOTES §5-3과 같은 이유).
+
+### 8-3. 종단 검증 완료 (2026-08-01, 같은 세션)
+
+`gh` CLI(GitHub 로그인 완료)와 Supabase CLI(Personal Access Token으로 인증)를
+이 환경에 연동해, 위 8-2의 "검증 못한 것" 1~3번까지 사람 개입 없이 전부
+완료했습니다.
+
+1. `db/002~004_*.sql`을 `supabase db query --linked --file`로 순서대로 실행 →
+   `information_schema`로 세 테이블·컬럼 존재 확인.
+2. `gh secret set`으로 `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`를 이
+   저장소 GitHub Secrets에 등록(사이트 저장소 `.env.local`과 동일 값 사용).
+3. 코드를 커밋·푸시(리서치자동화 `aba32f7`, 사이트 `4e91028`) 후
+   `gh workflow run`으로 `gainers-daily` 재실행 → **성공, `daily_gainers`에
+   2026-08-01 weekly 리포트 7종목이 `rise_reason` 채워진 채로 실제 upsert됨**
+   (Groq 분석까지 정상 동작 확인). `market-scope-daily`는 2026-08-01이
+   KRX 개장일이 아니라 정상 스킵되므로, 대신 로컬에서
+   `python scripts/collect_market_scope.py --date 2026-07-31`로 백필 실행 →
+   `market_scope_reports`에 385개 메시지·15개 항목 upsert 확인.
+4. 사이트(Vercel)의 `/api/top-gainers`·`/api/market-scope`를 실제로 호출해
+   최신 데이터가 그대로 내려오는 것까지 확인(`latestDate: 2026-08-01`,
+   gainers 7건·volumeStocks 10건 / market-scope `report_date: 2026-07-31`,
+   15건).
+
+**남은 사람 확인 사항은 이제 딱 하나**: `market-scope-daily` 워크플로가
+실제 평일 크론(20:00 UTC)으로 자동 실행될 때 `GEMINI_API_KEY` 시크릿이
+정상 동작하는지 — 로컬 백필로 스크립트 로직 자체는 검증됐지만, GitHub
+Actions 환경에서 아직 자연 발화(크론)로 실행된 적은 없습니다.
