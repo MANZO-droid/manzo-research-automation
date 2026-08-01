@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-01T11:29:12.666Z",
+  "updated_at": "2026-08-01T11:33:46.670Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,16 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-798fc7e0-4383-4e7b-ac2b-c6cf9c89edce",
+      "event_type": "bugfix",
+      "occurred_at": "2026-08-01T11:33:46.502Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "오늘(2026-08-01) 거래대금 데이터가 스키마 갱신 전 구코드로 저장돼 prevRank가 비어있던 문제 발견 → Supabase에서 직전 거래일(7/28) 데이터와 매칭해 직접 backfill, 사이트 API 실측 확인 완료",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-3767cb66-52d4-49bc-8bd5-e406f537c609",
       "event_type": "bugfix",
       "occurred_at": "2026-08-01T11:29:12.648Z",
@@ -302,18 +312,6 @@
       "run_id": null,
       "message": "design/automation.yaml 생성 — automation-blueprint.md와 workflow/WORKFLOW.md의 실제 흐름(개인 자동화 8단계)을 통합",
       "data": {}
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-0003-migration-approved",
-      "event_type": "migration.approved",
-      "occurred_at": "2026-08-01T05:35:00+09:00",
-      "actor": "user",
-      "run_id": null,
-      "message": "만조리서치 Top10 자동화 주제를 실제 자동화로 계속 사용하기로 확인, 마이그레이션 계획 승인",
-      "data": {
-        "migration_id": "2026-08-01-lesson02-compaction"
-      }
     }
   ],
   "tools": [],
