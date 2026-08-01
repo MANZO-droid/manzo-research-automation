@@ -474,6 +474,8 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
 
     prompt = f"""당신은 한국 주식 전문 애널리스트입니다.
 아래 종목의 {period} 급등 이유와 차트 분석을 실제 수집된 기사를 바탕으로 작성하세요.
+반드시 순수 한국어로만 작성하세요. "附近", "以上", "現在"처럼 한자를 섞어 쓰지 말고,
+"부근", "이상", "현재"처럼 한글로만 표기하세요.
 
 종목: {name} ({ticker})
 날짜: {date_str}
