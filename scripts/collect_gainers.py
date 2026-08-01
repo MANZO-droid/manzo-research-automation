@@ -161,6 +161,56 @@ def fetch_top_gainers(market_url: str, top_n: int = 20) -> list[dict]:
     return stocks
 
 
+def save_raw_candidates(date_str: str, kospi: list[dict], kosdaq: list[dict]):
+    """평일 실행마다 그날의 원본 상승률 후보(KOSPI+KOSDAQ)를 raw_top_candidates에
+    저장한다. 주간(weekly) 리포트가 실시간 재조회 대신 이 표에서 실제 일별
+    등락률을 읽어 복리 계산할 수 있게 하기 위함(2026-08-01 버그 수정 - 예전엔
+    '오늘' 데이터를 5번 반복 조회해 복리 계산하는 바람에 수치가 틀렸었다)."""
+    now = datetime.now(KST).isoformat()
+    rows = [
+        {
+            "trade_date": date_str, "market": "kospi", "ticker": s["ticker"], "name": s["name"],
+            "close": s["close"], "change_pct": s["changePct"], "trade_amount": s.get("tradeAmount"),
+            "updated_at": now,
+        }
+        for s in kospi
+    ] + [
+        {
+            "trade_date": date_str, "market": "kosdaq", "ticker": s["ticker"], "name": s["name"],
+            "close": s["close"], "change_pct": s["changePct"], "trade_amount": s.get("tradeAmount"),
+            "updated_at": now,
+        }
+        for s in kosdaq
+    ]
+    supabase_upsert("raw_top_candidates", rows, "trade_date,ticker")
+
+
+def fetch_weekly_candidates_from_db(week_start: str, week_end: str) -> dict:
+    """raw_top_candidates에서 week_start~week_end 구간의 실제 일별 등락률을 모아
+    ticker별 복리 누적 등락률을 계산한다(예전처럼 실시간 페이지를 반복 재조회하지
+    않고, 그 주 각 평일 실행 때 실제로 저장해둔 값을 사용 - 진짜 주간 등락률)."""
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    r = requests.get(
+        f"{url}/rest/v1/raw_top_candidates?select=trade_date,ticker,name,close,change_pct"
+        f"&trade_date=gte.{week_start}&trade_date=lte.{week_end}&order=trade_date.asc",
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    rows = r.json()
+
+    weekly_map: dict[str, dict] = {}
+    for row in rows:
+        t = row["ticker"]
+        if t not in weekly_map:
+            weekly_map[t] = {"ticker": t, "name": row["name"], "close": row["close"], "daily_changes": []}
+        weekly_map[t]["name"] = row["name"]
+        weekly_map[t]["close"] = row["close"]  # 마지막(최신) 값으로 갱신
+        weekly_map[t]["daily_changes"].append(row["change_pct"])
+    return weekly_map
+
+
 def get_daily_top10(date_str: str) -> list[dict]:
     """KOSPI+KOSDAQ 합산 상승률 상위 10종목 반환 (우선주·ETF·ETN 제외)."""
     kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=40)
@@ -192,31 +242,21 @@ def get_daily_top10(date_str: str) -> list[dict]:
 def get_weekly_top10(from_date: str, to_date: str) -> list[dict]:
     """
     from_date ~ to_date 기간의 주간 상승률 상위 10종목.
-    각 거래일 상위 종목을 수집 → 주간 등락률 기준 재정렬.
+
+    2026-08-01 버그 수정: 예전엔 이 기간의 각 평일을 "다시 조회"한다면서 실제로는
+    매번 네이버의 실시간(현재) 페이지만 반복 조회했다 - 그 페이지는 과거 날짜를
+    보여줄 수 없는 실시간 전용 페이지라서, 결과적으로 "오늘 하루치 등락률을
+    거래일 수만큼 복리 계산"하는 것과 같아져 수치가 완전히 틀렸다(예: 두산
+    +271.29% = 1.30^5-1, 즉 하루 +30%를 5제곱한 값과 정확히 일치했다).
+    이제는 raw_top_candidates에 매 평일 실행마다 실제로 저장해둔 그날의 원본
+    후보를 읽어 진짜 일별 등락률로 복리 계산한다(save_raw_candidates 참고).
+    이번 주부터 저장되므로, 과거 주(이 함수가 고쳐지기 전)는 소급 재계산이
+    안 된다 - 애초에 raw_top_candidates에 그 시절 데이터가 없기 때문.
     """
-    from_dt = datetime.strptime(from_date, "%Y-%m-%d")
-    to_dt = datetime.strptime(to_date, "%Y-%m-%d")
-
-    weekly_map: dict[str, dict] = {}
-
-    # 기간 내 각 날짜 상위 종목 수집
-    cur = from_dt
-    while cur <= to_dt:
-        if cur.weekday() < 5:  # 평일만
-            print(f"  [{cur.strftime('%m/%d')}] 데이터 수집 중...")
-            # top_n을 넉넉히 키운 이유: 후보 다수가 ETF/ETN/우선주라 classify_excluded()에서
-            # 걸러지고 나면 실제 종목이 10개 미만으로 남는 경우가 있었다(2026-08-01 실사례,
-            # 제외 후보 35개 중 실종목 7개만 남음). 40으로는 부족해 100으로 확대.
-            kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=100)
-            kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=100)
-            for s in kospi + kosdaq:
-                t = s["ticker"]
-                if t not in weekly_map:
-                    weekly_map[t] = s.copy()
-                    weekly_map[t]["daily_changes"] = []
-                weekly_map[t]["daily_changes"].append(s["changePct"])
-            time.sleep(1)
-        cur += timedelta(days=1)
+    weekly_map = fetch_weekly_candidates_from_db(from_date, to_date)
+    if not weekly_map:
+        print(f"  [경고] raw_top_candidates에 {from_date}~{to_date} 데이터가 없습니다"
+              f"(이 기간에 평일 자동 실행이 없었거나, 이 기능 도입 이전 주간입니다).")
 
     # 주간 누적 상승률 계산 (복리)
     for t, s in weekly_map.items():
@@ -653,6 +693,13 @@ def fetch_volume_stocks() -> list[dict]:
 
 def run_daily(client, date_str: str):
     print(f"\n[당일 리포트] {date_str}")
+
+    # 원본 후보 저장 (이번 주 토요일 주간 리포트가 나중에 실제 값으로 복리
+    # 계산할 수 있게 - get_weekly_top10() 참고). daily 리포트 자체와는 무관.
+    kospi_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=100)
+    kosdaq_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=100)
+    save_raw_candidates(date_str, kospi_raw, kosdaq_raw)
+
     print("1. 상승률 상위 10종목 수집 중...")
     gainers = get_daily_top10(date_str)
     print(f"   → {len(gainers)}개 수집 완료")
