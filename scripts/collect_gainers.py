@@ -204,8 +204,11 @@ def get_weekly_top10(from_date: str, to_date: str) -> list[dict]:
     while cur <= to_dt:
         if cur.weekday() < 5:  # 평일만
             print(f"  [{cur.strftime('%m/%d')}] 데이터 수집 중...")
-            kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=40)
-            kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=40)
+            # top_n을 넉넉히 키운 이유: 후보 다수가 ETF/ETN/우선주라 classify_excluded()에서
+            # 걸러지고 나면 실제 종목이 10개 미만으로 남는 경우가 있었다(2026-08-01 실사례,
+            # 제외 후보 35개 중 실종목 7개만 남음). 40으로는 부족해 100으로 확대.
+            kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=100)
+            kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=100)
             for s in kospi + kosdaq:
                 t = s["ticker"]
                 if t not in weekly_map:
