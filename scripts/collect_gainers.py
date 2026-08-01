@@ -555,36 +555,47 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
 
 # ─── 거래대금 상위(volumeStocks) 수집 ────────────────────────────────────────
 
-def fetch_investor_netbuy(ticker: str, close: int) -> dict:
-    """네이버 종목 페이지(frgn.naver)에서 최신 거래일의 기관·외국인 순매매량(주)을
-    읽어 종가와 곱해 순매수 금액(원)을 근사한다. 개인은 -(기관+외국인)의 역산값
-    (사이트 UI 안내문과 동일한 근사 방식 - index.html의 "※ 개인 순매수는..." 참고)."""
+def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = None) -> dict:
+    """네이버 종목 페이지(frgn.naver)에서 기관·외국인 순매매량(주)을 읽어 종가와
+    곱해 순매수 금액(원)을 근사한다. 개인은 -(기관+외국인)의 역산값(사이트 UI
+    안내문과 동일한 근사 방식 - index.html의 "※ 개인 순매수는..." 참고).
+
+    target_date(YYYY-MM-DD)를 주면 이 표가 실제로 제공하는 날짜별 이력에서
+    해당 날짜 행을 찾는다(최대 3페이지=약 30영업일 앞까지 탐색 - 과거 데이터
+    백필용). 생략하면 최신(1페이지 첫 행)을 반환한다(일일 자동 실행용)."""
+    target = target_date.replace("-", ".") if target_date else None
     try:
-        r = requests.get(
-            f"https://finance.naver.com/item/frgn.naver?code={ticker}",
-            headers=HEADERS, timeout=10,
-        )
-        r.encoding = "euc-kr"
-        soup = BeautifulSoup(r.text, "html.parser")
-        table = soup.select("table")[3]  # "외국인 기관 순매매 거래량" 표(날짜별)
-        for row in table.select("tr"):
-            tds = row.select("td")
-            if len(tds) < 9:
-                continue
-            date_text = tds[0].get_text(strip=True)
-            if not date_text:
-                continue
-            inst_raw = tds[5].get_text(strip=True).replace(",", "").replace("+", "")
-            frgn_raw = tds[6].get_text(strip=True).replace(",", "").replace("+", "")
-            try:
-                inst_shares = int(inst_raw)
-                frgn_shares = int(frgn_raw)
-            except ValueError:
-                continue
-            institution = inst_shares * close
-            foreign = frgn_shares * close
-            individual = -(institution + foreign)
-            return {"individual": individual, "institution": institution, "foreign": foreign}
+        for page in range(1, 4 if target else 2):
+            r = requests.get(
+                f"https://finance.naver.com/item/frgn.naver?code={ticker}&page={page}",
+                headers=HEADERS, timeout=10,
+            )
+            r.encoding = "euc-kr"
+            soup = BeautifulSoup(r.text, "html.parser")
+            table = soup.select("table")[3]  # "외국인 기관 순매매 거래량" 표(날짜별)
+            for row in table.select("tr"):
+                tds = row.select("td")
+                if len(tds) < 9:
+                    continue
+                date_text = tds[0].get_text(strip=True)
+                if not date_text:
+                    continue
+                if target and date_text != target:
+                    continue
+                inst_raw = tds[5].get_text(strip=True).replace(",", "").replace("+", "")
+                frgn_raw = tds[6].get_text(strip=True).replace(",", "").replace("+", "")
+                try:
+                    inst_shares = int(inst_raw)
+                    frgn_shares = int(frgn_raw)
+                except ValueError:
+                    continue
+                institution = inst_shares * close
+                foreign = frgn_shares * close
+                individual = -(institution + foreign)
+                return {"individual": individual, "institution": institution, "foreign": foreign}
+            if not target:
+                break
+            time.sleep(0.2)
     except Exception as e:
         print(f"    [순매수 수집 오류] {ticker}: {e}")
     return {"individual": 0, "institution": 0, "foreign": 0}

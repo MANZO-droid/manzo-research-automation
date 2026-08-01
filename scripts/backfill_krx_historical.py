@@ -1,0 +1,223 @@
+# -*- coding: utf-8 -*-
+"""
+1회성 백필: KRX 정보데이터시스템 Open API(KRX_OPENAPI_KEY, 회장님이 이미
+발급·연동해 두심)로 2026-07-17~07-31 공백 기간의 실제 전종목 시세를 받아
+그날그날의 진짜 상승률 Top10·거래대금 Top10을 복원한다.
+
+네이버의 실시간 전용 페이지와 달리 KRX Open API는 과거 특정 기준일(basDd)의
+전종목 시세를 정식으로 제공하므로, 이 스크립트로만 과거 날짜를 정확히
+복원할 수 있다(2026-08-01 AUTOMATION_NOTES §8-6/8-7 참고).
+
+사용법:
+  python scripts/backfill_krx_historical.py --dates 2026-07-20,2026-07-21,...
+  python scripts/backfill_krx_historical.py --from 2026-07-20 --to 2026-07-31
+
+완료 후 raw_top_candidates가 채워지므로, 8/1 주간 리포트를
+--recompute-weekly 로 다시 계산할 수 있다:
+  python scripts/backfill_krx_historical.py --recompute-weekly 2026-08-01 --week-start 2026-07-27 --week-end 2026-07-31
+
+필요 환경변수 (.env.local): GROQ_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, KRX_OPENAPI_KEY
+"""
+import argparse, os, sys, time
+from datetime import datetime, timedelta
+
+import requests
+from groq import Groq
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from collect_gainers import (  # noqa: E402
+    load_env, classify_excluded, fetch_ohlcv, calc_technicals, fetch_stock_news,
+    analyze_stock, fetch_investor_netbuy, save_raw_candidates, save_to_supabase,
+    get_weekly_top10, KST,
+)
+from krx_calendar import is_trading_day  # noqa: E402
+
+
+def fetch_krx_day(base_dd: str, market: str) -> list[dict]:
+    """market: 'stk'(KOSPI) 또는 'ksq'(KOSDAQ). 그날 전종목 시세를 반환한다."""
+    key = os.environ["KRX_OPENAPI_KEY"]
+    url = f"https://data-dbg.krx.co.kr/svc/apis/sto/{market}_bydd_trd"
+    r = requests.get(url, headers={"AUTH_KEY": key}, params={"basDd": base_dd}, timeout=30)
+    r.raise_for_status()
+    rows = r.json().get("OutBlock_1", [])
+    out = []
+    for row in rows:
+        try:
+            ticker = row["ISU_CD"]
+            if not (len(ticker) == 6 and ticker.isdigit()):
+                continue
+            out.append({
+                "ticker": ticker,
+                "name": row["ISU_NM"],
+                "close": int(row["TDD_CLSPRC"]),
+                "changePct": float(row["FLUC_RT"]),
+                "tradeAmount": int(row["ACC_TRDVAL"]),
+                "volume": int(row["ACC_TRDVOL"]),
+            })
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
+def build_daily_top10(all_stocks: list[dict]) -> list[dict]:
+    seen, top10 = set(), []
+    for s in sorted(all_stocks, key=lambda x: x["changePct"], reverse=True):
+        if s["ticker"] in seen:
+            continue
+        seen.add(s["ticker"])
+        reason = classify_excluded(s["ticker"], s["name"])
+        if reason:
+            print(f"  [제외] {s['name']} ({s['ticker']}) - {reason}")
+            continue
+        top10.append(dict(s))
+        if len(top10) >= 10:
+            break
+    if len(top10) < 10:
+        print(f"  [경고] 제외 처리 후 {len(top10)}개만 확보됨 (10개 미달)")
+    for i, s in enumerate(top10, 1):
+        s["rank"] = i
+    return top10
+
+
+def build_volume_top10(all_stocks: list[dict], date_str: str) -> list[dict]:
+    top10 = sorted(all_stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
+    for i, s in enumerate(top10, 1):
+        s = dict(s)
+        s["rank"] = i
+        s["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={s['ticker']}"
+        s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"], target_date=date_str)
+        top10[i - 1] = s
+        time.sleep(0.3)
+    return top10
+
+
+def backfill_date(client, date_str: str):
+    print(f"\n{'='*50}\n[백필] {date_str}\n{'='*50}")
+    base_dd = date_str.replace("-", "")
+
+    kospi = fetch_krx_day(base_dd, "stk")
+    kosdaq = fetch_krx_day(base_dd, "ksq")
+    print(f"  KRX 전종목: KOSPI {len(kospi)}개, KOSDAQ {len(kosdaq)}개")
+    if not kospi and not kosdaq:
+        print("  [skip] KRX 데이터 없음(휴장일이거나 API 오류)")
+        return
+
+    # 주간 리포트 재계산에도 쓰이도록 원본 후보 저장
+    save_raw_candidates(date_str, kospi, kosdaq)
+
+    all_stocks = kospi + kosdaq
+    gainers = build_daily_top10(all_stocks)
+    volume_stocks = build_volume_top10(all_stocks, date_str)
+    print(f"  gainers {len(gainers)}개, volumeStocks {len(volume_stocks)}개")
+
+    for g in gainers:
+        name, ticker = g["name"], g["ticker"]
+        print(f"\n  [{g['rank']}] {name} ({ticker}) +{g['changePct']:.2f}%")
+
+        ohlcv_all = fetch_ohlcv(ticker, count=120)
+        ohlcv = [o for o in ohlcv_all if o["date"] <= date_str]  # 그날짜 이후 데이터는 제외
+        g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv
+        g["technicals"] = calc_technicals(ohlcv, g["close"], g.get("volume", 0))
+        g["financials"] = {}
+        g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
+        time.sleep(0.3)
+
+        articles = fetch_stock_news(ticker, date_str, max_articles=15)
+        print(f"     기사 {len(articles)}개")
+        g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+
+        rise, chart = analyze_stock(client, name, ticker, date_str, g["changePct"], articles,
+                                    technicals=g["technicals"])
+        g["riseReason"] = rise
+        g["chartAnalysis"] = chart
+        time.sleep(1)
+
+    entry = {"date": date_str, "updatedAt": datetime.now(KST).isoformat(),
+              "gainers": gainers, "volumeStocks": volume_stocks}
+    save_to_supabase(date_str, entry, "daily", None, None)
+
+
+def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
+    print(f"\n{'='*50}\n[주간 재계산] {date_str} ({week_start} ~ {week_end})\n{'='*50}")
+    gainers = get_weekly_top10(week_start, week_end)
+    print(f"  주간 gainers {len(gainers)}개")
+
+    base_dd = week_end.replace("-", "")
+    kospi = fetch_krx_day(base_dd, "stk")
+    kosdaq = fetch_krx_day(base_dd, "ksq")
+    volume_stocks = build_volume_top10(kospi + kosdaq, week_end)
+
+    for g in gainers:
+        name, ticker = g["name"], g["ticker"]
+        print(f"\n  [{g['rank']}] {name} ({ticker}) 주간 +{g['changePct']:.2f}%")
+        ohlcv_all = fetch_ohlcv(ticker, count=120)
+        ohlcv = [o for o in ohlcv_all if o["date"] <= week_end]
+        g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv
+        g["technicals"] = calc_technicals(ohlcv, g["close"], 0)
+        g["financials"] = {}
+        g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
+        time.sleep(0.3)
+
+        articles = fetch_stock_news(ticker, week_end, max_articles=15)
+        print(f"     기사 {len(articles)}개")
+        g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+
+        rise, chart = analyze_stock(client, name, ticker, date_str, g["changePct"], articles,
+                                    technicals=g["technicals"], is_weekly=True)
+        g["riseReason"] = rise
+        g["chartAnalysis"] = chart
+        time.sleep(1)
+
+    entry = {"date": date_str, "type": "weekly", "weekRange": f"{week_start} ~ {week_end}",
+              "updatedAt": datetime.now(KST).isoformat(), "gainers": gainers, "volumeStocks": volume_stocks}
+    save_to_supabase(date_str, entry, "weekly", week_start, week_end)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dates", help="쉼표로 구분된 날짜 목록 (YYYY-MM-DD,...)")
+    ap.add_argument("--from", dest="date_from", help="시작 날짜")
+    ap.add_argument("--to", dest="date_to", help="종료 날짜")
+    ap.add_argument("--recompute-weekly", dest="weekly_date", help="주간 리포트를 다시 계산할 발행일(YYYY-MM-DD)")
+    ap.add_argument("--week-start")
+    ap.add_argument("--week-end")
+    args = ap.parse_args()
+
+    load_env()
+    for key in ("GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "KRX_OPENAPI_KEY"):
+        if not os.environ.get(key):
+            print(f"[오류] {key}가 없습니다. .env.local에 추가해 주세요.")
+            sys.exit(1)
+
+    client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+
+    if args.weekly_date:
+        recompute_weekly(client, args.weekly_date, args.week_start, args.week_end)
+        print("\n완료!")
+        return
+
+    if args.dates:
+        dates = args.dates.split(",")
+    elif args.date_from and args.date_to:
+        d0 = datetime.strptime(args.date_from, "%Y-%m-%d")
+        d1 = datetime.strptime(args.date_to, "%Y-%m-%d")
+        dates = []
+        d = d0
+        while d <= d1:
+            ds = d.strftime("%Y-%m-%d")
+            if is_trading_day(ds):
+                dates.append(ds)
+            d += timedelta(days=1)
+    else:
+        print("[오류] --dates 또는 --from/--to 중 하나가 필요합니다.")
+        sys.exit(1)
+
+    print(f"백필 대상 날짜({len(dates)}개): {dates}")
+    for date_str in dates:
+        backfill_date(client, date_str)
+
+    print("\n전체 완료!")
+
+
+if __name__ == "__main__":
+    main()

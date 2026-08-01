@@ -1,0 +1,61 @@
+name: "과거 데이터 KRX 백필 (수동)"
+
+# 2026-08-01: KRX Open API(회장님이 발급·연동해둔 KRX_OPENAPI_KEY)로 네이버
+# 실시간 페이지로는 불가능한 과거 날짜 백필을 처리한다. scripts/backfill_krx_historical.py
+# 참고(AUTOMATION_NOTES.md §8-7). workflow_dispatch로만 수동 실행 - 정기 크론 없음.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: "쉼표로 구분된 날짜 목록 (예: 2026-07-20,2026-07-21)"
+        required: false
+      date_from:
+        description: "시작 날짜 (YYYY-MM-DD) - dates 대신 범위로 지정할 때"
+        required: false
+      date_to:
+        description: "종료 날짜 (YYYY-MM-DD)"
+        required: false
+      weekly_date:
+        description: "주간 리포트를 다시 계산할 발행일(YYYY-MM-DD) - 이걸 채우면 위 항목은 무시됨"
+        required: false
+      week_start:
+        description: "주간 재계산 시 시작일"
+        required: false
+      week_end:
+        description: "주간 재계산 시 종료일"
+        required: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install requests beautifulsoup4 groq
+
+      - name: 백필 실행
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.weekly_date }}" ]; then
+            ARGS="--recompute-weekly ${{ inputs.weekly_date }} --week-start ${{ inputs.week_start }} --week-end ${{ inputs.week_end }}"
+          elif [ -n "${{ inputs.dates }}" ]; then
+            ARGS="--dates ${{ inputs.dates }}"
+          elif [ -n "${{ inputs.date_from }}" ]; then
+            ARGS="--from ${{ inputs.date_from }} --to ${{ inputs.date_to }}"
+          else
+            echo "입력값이 없습니다. dates 또는 date_from/date_to 또는 weekly_date를 지정하세요."
+            exit 1
+          fi
+          python -u scripts/backfill_krx_historical.py $ARGS
