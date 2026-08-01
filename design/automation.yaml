@@ -52,17 +52,17 @@ automation:
       human_gate: false
     - id: step-07
       name: 결과 저장
-      description: "사이트 저장소의 stock-analysis-data.json의 dates[날짜]에 날짜별로 upsert 저장한다(기존 날짜는 지워지지 않음)"
+      description: "Supabase daily_gainers·volume_stocks 테이블에 (trade_date, rank, report_type) 기준 upsert 저장한다(기존 날짜는 지워지지 않음). 2026-08-01부로 stock-analysis-data.json 하드코딩 폐기"
       human_gate: false
     - id: step-08
       name: 게시
-      description: "git_push()가 스크립트 안에서 조건 없이 자동 실행된다(add→commit→push). 사람이 막는 지점이 코드에 없음"
+      description: "Supabase upsert 자체가 게시다 — 사이트의 api/top-gainers.js가 같은 테이블을 실시간 조회하므로 별도 배포·git push가 필요 없다. 사람이 막는 지점이 코드에 없음(upsert는 조건 없이 자동 실행)"
       human_gate: false
   output:
-    description: "사이트 저장소의 stock-analysis-data.json의 dates[날짜].gainers[]와 volumeStocks[]. 사이트의 '당일 상승률 상위 10위'·'거래대금 상위 10위' 섹션에서 렌더링됨"
+    description: "Supabase daily_gainers(gainers)·volume_stocks(거래대금) 테이블. 사이트의 api/top-gainers.js가 병합해 반환하고, '당일 상승률 상위 10위'·'거래대금 상위 10위' 섹션에서 렌더링됨"
     formats:
-      - json
-    path_pattern: "../만조그룹 2차/stock-analysis-data.json (별도 저장소 manzo-site) — SITE_REPO_PATH 환경변수로 위치를 넘긴다. 로컬 실행은 형제 폴더로 기본 가정. 이 저장소의 output/은 실제 실행 산출물 보관용으로 비워 둠"
+      - supabase-table
+    path_pattern: "Supabase 프로젝트(사이트 저장소 .env.local의 SUPABASE_URL과 동일) — daily_gainers, volume_stocks 테이블. 스키마: db/daily_gainers.sql, db/002_daily_gainers_weekly_and_comments.sql, db/003_volume_stocks.sql"
     required_fields:
       - rank
       - ticker
@@ -77,7 +77,7 @@ automation:
   external_actions:
     enabled: true
     approval_required: true
-    note: "git_push()가 스크립트 안에서 조건 없이 자동 실행됨 — 사전 승인 게이트가 현재 코드에는 없음(확인 필요). 사후 검토만 가능한 상태"
+    note: "Supabase upsert(daily_gainers/volume_stocks)가 스크립트 안에서 조건 없이 자동 실행됨 — 사전 승인 게이트가 현재 코드에는 없음(확인 필요). 사후 검토만 가능한 상태. 2026-08-01부로 git_push()는 제거됨(더 이상 사이트 저장소에 파일을 커밋하지 않음)"
   human_review:
     required: true
     point: "최종 게시(배포) 이후 사후 검토 — 상승 이유 분석의 사실관계, 분량(riseReason 200자·chartAnalysis 150자 이상 — 로드맵의 250자 기준과 다름, 확인 필요), 종목 필터링 누락·오류"

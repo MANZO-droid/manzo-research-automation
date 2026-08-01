@@ -17,6 +17,9 @@
 
 필요 환경변수 (.env.local, 저장소에 커밋되지 않음):
   GEMINI_API_KEY
+  SUPABASE_URL                사이트가 쓰는 것과 동일한 Supabase 프로젝트
+  SUPABASE_SERVICE_ROLE_KEY   RLS를 우회해 market_scope_reports에 쓰기 위한 서버 전용 키
+                               (2026-08-01부로 market-scope-data.json 하드코딩 대신 이걸 사용)
 """
 import argparse, json, os, re, sys, time, warnings
 warnings.filterwarnings("ignore")
@@ -31,11 +34,6 @@ import google.generativeai as genai
 
 # scripts/ 에서 한 단계 위가 이 저장소(리서치자동화)의 루트다(.env.local이 여기 있다).
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# 결과 JSON은 별도 저장소(만조그룹 2차 = 사이트)에 있다. 로컬 실행은 형제 폴더로 가정하고,
-# GitHub Actions 등에서는 SITE_REPO_PATH 환경변수로 실제 체크아웃 경로를 넘겨받는다.
-SITE_ROOT = os.environ.get("SITE_REPO_PATH") or os.path.join(os.path.dirname(ROOT), "만조그룹 2차")
-JSON_PATH = os.path.join(SITE_ROOT, "market-scope-data.json")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krx_calendar import is_trading_day  # noqa: E402
@@ -244,15 +242,33 @@ def build_report(report_date, gemini_model):
     }
 
 
-def upsert_report(data, report):
-    """같은 report_date가 이미 있으면 교체, 없으면 history에 추가 후 최신 날짜를 current로 승격."""
-    date = report["report_date"]
-    data["history"] = [h for h in data["history"] if h.get("report_date") != date]
-    if data["current"].get("report_date") == date:
-        pass  # current 자체를 교체 예정
-    elif data["current"].get("report_date"):
-        data["history"].append(data["current"])
-    data["current"] = report
+def save_report_to_supabase(report: dict):
+    """market_scope_reports에 report_date 기준 upsert. api/market-scope.js가
+    report_date 최신 행을 current로, 나머지를 history로 구성해 서비스한다."""
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    row = {
+        "report_date": report["report_date"],
+        "range_label": report["range_label"],
+        "message_count": report["message_count"],
+        "channel_count": report["channel_count"],
+        "items": report["items"],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    r = requests.post(
+        f"{url}/rest/v1/market_scope_reports?on_conflict=report_date",
+        headers={
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+        json=[row],
+        timeout=30,
+    )
+    if not r.ok:
+        raise RuntimeError(f"Supabase market_scope_reports upsert 실패 {r.status_code}: {r.text}")
+    print(f"[supabase] market_scope_reports upsert 완료 ({report['report_date']})")
 
 
 def main():
@@ -276,6 +292,9 @@ def main():
             return
 
     load_env()
+    if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+        print("[오류] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY가 없습니다. .env.local에 추가해 주세요.")
+        sys.exit(1)
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
     gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -296,16 +315,11 @@ def main():
         # (마찬가지로 KST 기준 - 위 today 계산과 동일한 이유)
         dates = [datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")]
 
-    with open(JSON_PATH, encoding="utf-8") as f:
-        data = json.load(f)
-
     for report_date in dates:
         report = build_report(report_date, gemini_model)
-        upsert_report(data, report)
+        save_report_to_supabase(report)
 
-    with open(JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"\n저장 완료: history {len(data['history'])}개 + current({data['current']['report_date']})")
+    print(f"\n완료: {len(dates)}개 날짜 저장")
 
 
 if __name__ == "__main__":

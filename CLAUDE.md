@@ -6,10 +6,10 @@
 
 원래 사이트 저장소(`만조그룹 2차` = GitHub `manzo-site`) 안에 `리서치자동화/` 하위 폴더로 있었으나, 완전히 분리된 **독립 git 저장소**가 됐습니다. 형제 폴더 `E:\AI 스터디\만조그룹 2차\`가 사이트 저장소입니다.
 
-- 이 저장소는 결과 JSON을 **갖고 있지 않습니다.** `scripts/*.py`가 사이트 저장소의 `stock-analysis-data.json`·`market-scope-data.json`을 직접 쓰고 `git add/commit/push`합니다.
-- 로컬 실행 시 스크립트는 `../만조그룹 2차`를 형제 폴더로 자동 가정합니다.
-- GitHub Actions([.github/workflows/](.github/workflows/))는 사이트 저장소를 `site-repo/`로 추가 체크아웃하고, `SITE_REPO_PATH` 환경변수로 위치를 스크립트에 넘깁니다. 이 크로스 저장소 체크아웃·푸시에는 사이트 저장소에 쓰기 권한이 있는 PAT가 필요하며, 이 저장소의 GitHub Secrets에 `SITE_REPO_PAT`라는 이름으로 등록돼 있어야 합니다.
-- 이 저장소를 고칠 때 사이트 코드(`index.html` 등)는 건드리지 않습니다 — 그건 사이트 저장소의 몫입니다.
+- **2026-08-01(2차) — 결과물을 사이트 저장소에 JSON으로 커밋하던 방식을 폐기하고 Supabase로 직접 저장합니다.** `scripts/collect_gainers.py`는 `daily_gainers`·`volume_stocks` 테이블에, `scripts/collect_market_scope.py`는 `market_scope_reports` 테이블에 REST API(`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`)로 upsert합니다. 더 이상 `stock-analysis-data.json`·`market-scope-data.json`을 쓰지 않고, 사이트 저장소를 체크아웃·커밋·푸시할 필요도 없습니다(`SITE_REPO_PAT` 시크릿도 더 이상 필요 없음).
+- 이 저장소는 여전히 사이트 저장소를 직접 갖고 있지 않습니다 — `db/*.sql`은 Supabase 대시보드 SQL Editor에 사람이 직접 실행하는 스키마 마이그레이션 파일입니다(스크립트가 DDL을 실행하지 않음).
+- 로컬 실행 시 `.env.local`에 `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`가 필요합니다(사이트 저장소 `.env.local`과 같은 프로젝트 값).
+- 사이트(`../만조그룹 2차/index.html`, `api/top-gainers.js`, `api/market-scope.js`)는 이 Supabase 테이블을 읽기 전용(anon key)으로 조회해 렌더링합니다. **원칙적으로 사이트 코드는 건드리지 않지만, "하드코딩 제거"처럼 이 저장소의 저장 방식 변경이 사이트의 읽기 코드에도 영향을 주는 경우는 예외**입니다(2026-08-01 Supabase 전환 때 `index.html`·`api/top-gainers.js`·`api/market-scope.js`·`api/cron-update-gainers.js`를 함께 수정함).
 
 ## 작업 원칙
 
@@ -30,7 +30,7 @@
    ```
 
 7. 대화에서 자동화 설계나 상태가 바뀌면 `design/automation.yaml`·`design/roadmap.yaml`을 먼저 갱신하고, 응답 전에 대시보드를 다시 만듭니다.
-8. 외부 발송·삭제·결제·예약·권한 변경은 직전 명시적 승인 없이는 하지 않습니다. **사이트 저장소로의 크로스 푸시는 이미 승인된 자동화 흐름의 일부이므로 예외입니다** — 단, `git_push()`가 실제로 무엇을 커밋하는지는 항상 로그로 확인 가능해야 합니다.
+8. 외부 발송·삭제·결제·예약·권한 변경은 직전 명시적 승인 없이는 하지 않습니다. **Supabase에 대한 upsert(daily_gainers/volume_stocks/market_scope_reports)는 이미 승인된 자동화 흐름의 일부이므로 예외입니다** — 단, 무엇을 upsert했는지는 항상 로그로 확인 가능해야 합니다. 스키마 변경(DDL, `db/*.sql`)은 스크립트가 자동 실행하지 않고 사람이 Supabase SQL Editor에서 직접 실행합니다.
 9. 증거 없는 로드맵 단계를 완료로 표시하지 않습니다.
 10. "입·출력 규격 검증을 진행해줘" 또는 "목 입력을 만들어줘" 요청을 받으면 `.claude/skills/`·`.agents/skills/`의 `semiclass-input-output-spec-review`/`semiclass-mock-input-generator` SKILL.md를 적용합니다.
 11. 확정된 규칙은 [reference/policies/confirmed-rules.md](reference/policies/confirmed-rules.md), 아직 확정 전인 질문·후보는 [.automation/intake.json](.automation/intake.json)의 `open_questions`에 있습니다. `design/roadmap.yaml`의 `stages` 순서(design → prepare → first_run → verify → operate)를 따릅니다.

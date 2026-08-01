@@ -272,3 +272,105 @@ volumeStocks가 비어있는 날짜: 없음 (현재 파일에 있는 모든 날�
   라이브러리에서 확인. **검증 못한 것**: 실제 Groq API를 호출해 한국어
   `riseReason`/`chartAnalysis` 품질을 확인하는 것 — 다음 실제 실행(수동
   `workflow_dispatch` 또는 다음 예약 실행) 때 사람이 결과물을 확인해야 합니다.
+
+---
+
+## 8. 2026-08-01: GitHub Actions 동작 검증 + JSON 하드코딩 → Supabase 직접 저장 전환
+
+### 8-1. GitHub Actions 동작 검증 결과
+
+`https://api.github.com/repos/MANZO-droid/manzo-research-automation`으로 직접
+확인(저장소가 public이라 인증 없이 조회 가능, `gh` CLI는 이 환경에 설치돼
+있지 않아 REST API로 대체):
+
+- 두 워크플로(`gainers-daily.yml`, `market-scope-daily.yml`) 모두 **등록되고
+  활성화(active)** 상태 확인.
+- `gainers-daily`: 오늘(2026-08-01) 실행 이력 2건 확인 — 1차는 실패(Groq 전환
+  전 코드), 2차(Groq 전환 후, `bc7a8fd`)는 **성공**. `SITE_REPO_PAT`·
+  `GROQ_API_KEY` 시크릿이 이미 등록돼 있고 크로스 저장소 푸시까지 실제로
+  동작한다는 뜻(사이트 저장소 커밋 `2198f7e` 확인).
+- `market-scope-daily`: 실행 이력 **0건** — 크론(20:00 UTC)이 아직 한 번도
+  도래하지 않았고 수동 실행도 안 됐기 때문으로 보임(워크플로 자체는
+  active). `GEMINI_API_KEY` 시크릿이 실제로 등록돼 있는지는 **아직
+  미검증** — 사람이 "Run workflow"(workflow_dispatch)로 한 번 수동 실행해
+  확인하는 걸 권장합니다.
+- 사이트 저장소의 `market-scope-data.json` 최신 커밋(`7977a23`,
+  2026-08-01)은 이 GH Actions 워크플로가 아니라 이전 파이프라인(Cowork
+  Scheduled Task 등)에서 온 것으로 추정됩니다(워크플로 실행 이력 0건과
+  모순되지 않음 - 저장소 분리 이전 마지막 로컬/Cowork 실행 결과).
+
+### 8-2. 하드코딩 JSON → Supabase 직접 저장 전환 (회장님 지시)
+
+"리서치 액션이 완료돼서 등록하는 리포트 자료는 더 이상 만조사이트에
+하드코딩하지 말고 Supabase 데이터베이스에 저장해달라"는 지시에 따라, 두
+파이프라인 모두 **사이트 저장소에 JSON을 git push하던 방식을 완전히
+폐기**하고 Supabase에 직접 upsert하도록 바꿨습니다.
+
+**발견한 기존 자산**: 사이트 저장소에 이미 `daily_gainers` Supabase
+테이블과 이를 읽는 `api/top-gainers.js`(공개 anon key 사용, RLS로 쓰기
+차단)가 존재했습니다(원래는 별도의 키움 API 기반 Vercel Cron
+`api/cron-update-gainers.js` 전용이었고, 2026-07-12 이후 갱신이 멈춘
+상태였음 - §0 참고). 이 표의 컬럼 구성(`ohlcv`, `technicals`, `news`,
+`rise_reason`, `chart_analysis`)이 `collect_gainers.py`가 생성하는 데이터와
+거의 그대로 일치해, 새 표를 만드는 대신 이 표를 확장해 재사용했습니다.
+
+**변경 파일**:
+- `db/002_daily_gainers_weekly_and_comments.sql`(신규) — `daily_gainers`에
+  `report_type`(`daily`/`weekly`)·`week_start`·`week_end` 컬럼 추가, 유일키를
+  `(trade_date, rank)`에서 `(trade_date, rank, report_type)`으로 교체(주간
+  리포트도 같은 표에 저장하기 위함). `rise_reason`/`chart_analysis`/`news`가
+  이제 자동 생성됨을 코멘트로 갱신.
+- `db/003_volume_stocks.sql`(신규) — 거래대금 상위 10위 전용 표(신규,
+  RLS: 공개 읽기·서버만 쓰기).
+- `db/004_market_scope_reports.sql`(신규) — 마켓 스코프 리포트 표(신규,
+  날짜별 1행 upsert, RLS: 공개 읽기·서버만 쓰기).
+  ⚠ **이 세 SQL 파일은 사람이 Supabase 대시보드 SQL Editor에서 직접
+  실행해야 적용됩니다** — 스크립트가 DDL을 자동 실행하지 않습니다.
+- `scripts/collect_gainers.py` — JSON 파일 읽기/쓰기 + `git_push()` 제거,
+  `supabase_upsert()`로 `daily_gainers`·`volume_stocks`에 upsert하도록 교체.
+- `scripts/collect_market_scope.py` — 동일하게 JSON + `git_push()` 제거,
+  `market_scope_reports`에 upsert.
+- `.github/workflows/gainers-daily.yml`,
+  `.github/workflows/market-scope-daily.yml` — 사이트 저장소 체크아웃·커밋·
+  푸시 스텝 전부 제거(더 이상 필요 없음). 대신 `SUPABASE_URL`·
+  `SUPABASE_SERVICE_ROLE_KEY`를 시크릿 env로 추가. **`SITE_REPO_PAT`는 더
+  이상 필요하지 않습니다**(비활성화하거나 삭제해도 됨 - 사람 확인 필요,
+  다른 용도로 쓰고 있지 않은지 먼저 확인할 것).
+- 사이트 저장소 `api/top-gainers.js` — `volume_stocks` 테이블도 함께
+  조회해 `dates[날짜].volumeStocks`로 병합 반환하도록 확장(기존에는
+  gainers만 DB에서 읽고 volumeStocks는 JSON 폴백이었음).
+- 사이트 저장소 `api/market-scope.js`(신규) — `market_scope_reports`를
+  읽어 `{current, history}` 형태로 반환(기존 JSON 파일과 같은 응답 모양).
+- 사이트 저장소 `api/cron-update-gainers.js` — `daily_gainers` 유일키 변경에
+  맞춰 `on_conflict` 파라미터와 upsert payload에 `report_type: 'daily'`
+  추가(그대로 두면 유일키 불일치로 upsert가 깨짐 - db/002 마이그레이션과
+  함께 적용해야 함).
+- 사이트 저장소 `index.html` — `loadStockAnalysis()`가 이제
+  `/stock-analysis-data.json` 폴백 없이 `/api/top-gainers` 하나만 호출.
+  마켓 스코프 로더도 `market-scope-data.json` 대신 `/api/market-scope` 호출.
+
+**사이트 저장소의 기존 `stock-analysis-data.json`·`market-scope-data.json`
+파일 자체는 삭제하지 않고 그대로 남겨뒀습니다**(과거 기록 보관 목적, 이제
+어떤 코드도 읽지 않음 - 필요 없다고 판단되면 사람이 삭제해도 안전합니다).
+
+**검증한 것**: 양쪽 저장소 모든 변경 파일 `python -m py_compile` /
+`node --check` 통과. GitHub Actions 워크플로 등록 상태를 REST API로 확인.
+기존 `api/top-gainers.js`가 이미 실사용 중인 Supabase 프로젝트·anon key를
+그대로 재사용해 새 자격증명이 필요 없음을 확인.
+
+**검증 못한 것 (사람이 해야 할 일)**:
+1. 위 `db/002~004` SQL 3개를 Supabase 대시보드 SQL Editor에서 순서대로
+   실행 — 아직 실행 안 됨(이 세션에는 Supabase 대시보드 접근 권한 없음).
+2. 이 저장소(`manzo-research-automation`)의 GitHub Secrets에
+   `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY` 등록 — 사이트 저장소
+   `.env.local`에 있는 값과 동일해야 함(현재 미등록으로 추정, 등록 안 하면
+   다음 자동 실행이 실패함).
+3. SQL 마이그레이션 적용 후 `workflow_dispatch`로 두 워크플로 모두 수동
+   1회 실행해 실제로 Supabase에 행이 쌓이는지, 사이트가 그 데이터를
+   렌더링하는지 브라우저로 최종 확인.
+4. `market-scope-daily` 워크플로가 `GEMINI_API_KEY` 시크릿 부재로 실패하지
+   않는지 확인(§8-1 참고, 아직 한 번도 실행된 적 없어 미검증).
+5. `api/cron-update-gainers.js`를 구동하는 Vercel Cron이 여전히 필요한지
+   판단 — 이제 `collect_gainers.py` 파이프라인이 더 풍부한 데이터(뉴스·
+   상승이유·차트분석 포함)로 같은 표를 채우므로, 중복 실행 방지 차원에서
+   Vercel Cron을 끄는 걸 권장합니다(AUTOMATION_NOTES §5-3과 같은 이유).

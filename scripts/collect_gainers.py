@@ -7,7 +7,7 @@
   2) 종목별 OHLCV 120일치 → 이동평균·거래량비율 등 기술적 지표 계산
   3) 네이버 금융 뉴스 10개 이상 수집
   4) Groq(Llama 3.3 70B, 무료 API)로 상승이유·차트분석 작성
-  5) stock-analysis-data.json 갱신 → git push → Vercel 자동 배포
+  5) Supabase(daily_gainers, volume_stocks)에 upsert → 사이트가 /api/top-gainers로 즉시 조회
 
 사용법:
   python scripts/collect_gainers.py               # 인자 없이 실행 = 무인 자동 실행
@@ -24,9 +24,12 @@
     GitHub Actions 전환 후 중복 실행 방지를 위해 비활성화 권장.
 
 필요 환경변수 (.env.local):
-  GROQ_API_KEY  (2026-08-01부로 무료 티어 유지를 위해 Anthropic Claude에서 교체됨)
+  GROQ_API_KEY               (2026-08-01부로 무료 티어 유지를 위해 Anthropic Claude에서 교체됨)
+  SUPABASE_URL                사이트가 쓰는 것과 동일한 Supabase 프로젝트
+  SUPABASE_SERVICE_ROLE_KEY   RLS를 우회해 daily_gainers/volume_stocks에 쓰기 위한 서버 전용 키
+                               (2026-08-01부로 stock-analysis-data.json 하드코딩 대신 이걸 사용)
 """
-import argparse, json, os, re, subprocess, sys, time
+import argparse, os, re, sys, time
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
@@ -38,13 +41,6 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 # scripts/ 에서 한 단계 위가 이 저장소(리서치자동화)의 루트다. .env.local이 여기 있다.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# 결과 JSON은 별도 저장소(만조그룹 2차 = 사이트)에 있다. 로컬 실행은 형제 폴더로 가정하고,
-# GitHub Actions처럼 두 저장소가 형제로 체크아웃되지 않는 환경에서는
-# SITE_REPO_PATH 환경변수로 실제 사이트 저장소 경로를 넘겨받는다.
-SITE_ROOT = os.environ.get("SITE_REPO_PATH") or os.path.join(os.path.dirname(ROOT), "만조그룹 2차")
-JSON_REL = "stock-analysis-data.json"
-JSON_PATH = os.path.join(SITE_ROOT, JSON_REL)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from krx_calendar import is_trading_day, get_weekly_report_trigger  # noqa: E402
@@ -662,19 +658,74 @@ def run_weekly(client, date_str: str, from_date: str, to_date: str):
     }
 
 
-def git_push(date_str: str):
-    # 결과 파일이 있는 곳(SITE_ROOT)은 이 스크립트가 속한 저장소와 다른 저장소다.
-    # git 조작은 반드시 그쪽 저장소(cwd=SITE_ROOT)에서 실행해야 한다.
-    try:
-        subprocess.run(["git", "add", JSON_REL], cwd=SITE_ROOT, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", f"data: 상승률 상위 10위 자동 업데이트 ({date_str})"],
-            cwd=SITE_ROOT, check=True
-        )
-        subprocess.run(["git", "push"], cwd=SITE_ROOT, check=True)
-        print(f"[git] push 완료 → Vercel 자동 배포")
-    except subprocess.CalledProcessError as e:
-        print(f"[git 오류] {e}")
+def supabase_upsert(table: str, rows: list[dict], on_conflict: str):
+    """Supabase REST로 upsert(service_role key, RLS 우회). 실패하면 예외를 던진다 -
+    부분 실패한 데이터가 조용히 누락되는 것을 막기 위해 여기서 멈춘다."""
+    if not rows:
+        return
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    r = requests.post(
+        f"{url}/rest/v1/{table}?on_conflict={on_conflict}",
+        headers={
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+        json=rows,
+        timeout=30,
+    )
+    if not r.ok:
+        raise RuntimeError(f"Supabase {table} upsert 실패 {r.status_code}: {r.text}")
+    print(f"[supabase] {table} {len(rows)}행 upsert 완료")
+
+
+def gainer_to_row(date_str: str, g: dict, report_type: str,
+                   week_start: str | None, week_end: str | None) -> dict:
+    return {
+        "trade_date": date_str,
+        "rank": g["rank"],
+        "report_type": report_type,
+        "week_start": week_start,
+        "week_end": week_end,
+        "ticker": g["ticker"],
+        "name": g["name"],
+        "close": g["close"],
+        "change_pct": g["changePct"],
+        "trade_amount": g.get("tradeAmount"),
+        "ohlcv": g.get("ohlcv", []),
+        "technicals": g.get("technicals"),
+        "financials": g.get("financials", {}),
+        "news": g.get("news", []),
+        "rise_reason": g.get("riseReason", ""),
+        "chart_analysis": g.get("chartAnalysis", ""),
+        "updated_at": datetime.now(KST).isoformat(),
+    }
+
+
+def volume_to_row(date_str: str, v: dict) -> dict:
+    return {
+        "trade_date": date_str,
+        "rank": v["rank"],
+        "ticker": v["ticker"],
+        "name": v["name"],
+        "close": v["close"],
+        "change_pct": v["changePct"],
+        "trade_amount": v["tradeAmount"],
+        "naver_url": v.get("naverUrl"),
+        "updated_at": datetime.now(KST).isoformat(),
+    }
+
+
+def save_to_supabase(date_str: str, entry: dict, report_type: str,
+                      week_start: str | None, week_end: str | None):
+    gainer_rows = [gainer_to_row(date_str, g, report_type, week_start, week_end)
+                    for g in entry["gainers"]]
+    supabase_upsert("daily_gainers", gainer_rows, "trade_date,rank,report_type")
+
+    volume_rows = [volume_to_row(date_str, v) for v in entry["volumeStocks"]]
+    supabase_upsert("volume_stocks", volume_rows, "trade_date,rank")
 
 
 def main():
@@ -682,6 +733,9 @@ def main():
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         print("[오류] GROQ_API_KEY가 없습니다. .env.local에 추가해 주세요.")
+        sys.exit(1)
+    if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+        print("[오류] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY가 없습니다. .env.local에 추가해 주세요.")
         sys.exit(1)
 
     client = Groq(api_key=api_key, max_retries=0)
@@ -732,9 +786,6 @@ def main():
             fri = mon + timedelta(days=4)
             week_start, week_end = mon.strftime("%Y-%m-%d"), fri.strftime("%Y-%m-%d")
 
-    with open(JSON_PATH, encoding="utf-8") as f:
-        data = json.load(f)
-
     try:
         if mode == "daily":
             if not unattended and weekday >= 5:
@@ -744,20 +795,13 @@ def main():
         else:
             entry = run_weekly(client, date_str, week_start, week_end)
     except GroqQuotaExhausted as e:
-        # 여기서 멈추면 stock-analysis-data.json 저장·git_push()는 실행되지 않는다 -
-        # 부분적으로만 분석된 데이터를 커밋하지 않기 위함. 워크플로우는 실패로
-        # 표시되고, 사람이 할당량 회복 후 "Run workflow"로 직접 다시 실행해야 한다.
+        # 여기서 멈추면 Supabase upsert는 실행되지 않는다 - 부분적으로만
+        # 분석된 데이터를 저장하지 않기 위함. 워크플로우는 실패로 표시되고,
+        # 사람이 할당량 회복 후 "Run workflow"로 직접 다시 실행해야 한다.
         print(f"\n[중단] {e}")
         sys.exit(1)
 
-    data["dates"][date_str] = entry
-    data["latestDate"] = max(data["dates"].keys())
-
-    with open(JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"\n[저장] {JSON_PATH}")
-
-    git_push(date_str)
+    save_to_supabase(date_str, entry, mode, week_start, week_end)
     print("\n완료!")
 
 

@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-01T07:19:48.133Z",
+  "updated_at": "2026-08-01T10:48:47.435Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -58,28 +58,28 @@
       {
         "id": "step-06",
         "name": "상승 이유·차트 분석",
-        "description": "뉴스가 있으면 Claude(claude-opus-5)로 riseReason(200자 이상)과 chartAnalysis(150자 이상, 실제 technicals 수치 근거)를 생성한다",
+        "description": "뉴스가 있으면 Groq(llama-3.3-70b-versatile, 무료 API, 2026-08-01부로 Claude에서 교체)로 riseReason(200자 이상)과 chartAnalysis(150자 이상, 실제 technicals 수치 근거)를 생성한다",
         "human_gate": false
       },
       {
         "id": "step-07",
         "name": "결과 저장",
-        "description": "사이트 저장소의 stock-analysis-data.json의 dates[날짜]에 날짜별로 upsert 저장한다(기존 날짜는 지워지지 않음)",
+        "description": "Supabase daily_gainers·volume_stocks 테이블에 (trade_date, rank, report_type) 기준 upsert 저장한다(기존 날짜는 지워지지 않음). 2026-08-01부로 stock-analysis-data.json 하드코딩 폐기",
         "human_gate": false
       },
       {
         "id": "step-08",
         "name": "게시",
-        "description": "git_push()가 스크립트 안에서 조건 없이 자동 실행된다(add→commit→push). 사람이 막는 지점이 코드에 없음",
+        "description": "Supabase upsert 자체가 게시다 — 사이트의 api/top-gainers.js가 같은 테이블을 실시간 조회하므로 별도 배포·git push가 필요 없다. 사람이 막는 지점이 코드에 없음(upsert는 조건 없이 자동 실행)",
         "human_gate": false
       }
     ],
     "outputs": [],
-    "output_description": "사이트 저장소의 stock-analysis-data.json의 dates[날짜].gainers[]와 volumeStocks[]. 사이트의 '당일 상승률 상위 10위'·'거래대금 상위 10위' 섹션에서 렌더링됨",
+    "output_description": "Supabase daily_gainers(gainers)·volume_stocks(거래대금) 테이블. 사이트의 api/top-gainers.js가 병합해 반환하고, '당일 상승률 상위 10위'·'거래대금 상위 10위' 섹션에서 렌더링됨",
     "output_formats": [
-      "json"
+      "supabase-table"
     ],
-    "output_path": "../만조그룹 2차/stock-analysis-data.json (별도 저장소 manzo-site) — SITE_REPO_PATH 환경변수로 위치를 넘긴다. 로컬 실행은 형제 폴더로 기본 가정. 이 저장소의 output/은 실제 실행 산출물 보관용으로 비워 둠",
+    "output_path": "Supabase 프로젝트(사이트 저장소 .env.local의 SUPABASE_URL과 동일) — daily_gainers, volume_stocks 테이블. 스키마: db/daily_gainers.sql, db/002_daily_gainers_weekly_and_comments.sql, db/003_volume_stocks.sql",
     "output_forms": [],
     "human_review": {
       "required": true,
@@ -175,6 +175,16 @@
   "latest_run": null,
   "recent_runs": [],
   "recent_events": [
+    {
+      "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-5fe87b37-3c0e-4e85-b4e3-d0da63c2ce33",
+      "event_type": "automation-changed",
+      "occurred_at": "2026-08-01T10:48:47.414Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "상승률/마켓스코프 파이프라인을 사이트 JSON 하드코딩+git push에서 Supabase 직접 저장으로 전환. GH Actions 동작 검증 완료(gainers 성공 확인, market-scope 미검증)",
+      "data": {}
+    },
     {
       "schema": "semiclass-automation-event/v1",
       "event_id": "evt-a744a1c8-6faa-4359-863f-822ea7297f76",
