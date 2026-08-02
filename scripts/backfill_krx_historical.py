@@ -32,7 +32,7 @@ import google.generativeai as genai
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, fetch_stock_news,
-    build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
+    fetch_financials, build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
     save_raw_candidates, save_to_supabase, get_weekly_top10, KST,
 )
 from krx_calendar import is_trading_day  # noqa: E402
@@ -137,7 +137,7 @@ def backfill_date(client, date_str: str):
         ohlcv = [o for o in ohlcv_all if o["date"] <= date_str]  # 그날짜 이후 데이터는 제외
         g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv
         g["technicals"] = calc_technicals(ohlcv, g["close"], g.get("volume", 0))
-        g["financials"] = {}
+        g["financials"] = fetch_financials(ticker)
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
@@ -173,7 +173,7 @@ def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
         ohlcv = [o for o in ohlcv_all if o["date"] <= week_end]
         g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv
         g["technicals"] = calc_technicals(ohlcv, g["close"], 0)
-        g["financials"] = {}
+        g["financials"] = fetch_financials(ticker)
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 

@@ -1,0 +1,95 @@
+# -*- coding: utf-8 -*-
+"""
+1회성 패치: daily_gainers에서 financials(재무정보)나 news(최근뉴스)가 비어있는
+행만 골라 채운다. LLM 분석(riseReason/chartAnalysis)은 건드리지 않는다 -
+회장님이 요청한 건 재무정보·뉴스 표시뿐이라 그 범위만 패치한다.
+
+배경: 2026-08-01 KRX 백필(backfill_krx_historical.py)이 처음엔 financials를
+항상 빈 값으로 저장했고(재무정보 자동화가 그때까진 없었음), 반대로 그
+이전(7/2~7/16)의 기존 데이터는 news가 비어 있었다(회장님이 스크린샷으로
+지적). fetch_financials()가 새로 추가된 뒤 이 스크립트로 양쪽을 한 번에
+메운다.
+
+사용법:
+  python scripts/patch_gainer_fields.py --mode financials
+  python scripts/patch_gainer_fields.py --mode news
+  python scripts/patch_gainer_fields.py --mode both
+
+필요 환경변수 (.env.local): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY 불필요(뉴스만 패치, 분석 안 함)
+"""
+import argparse, os, sys, time
+
+import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from collect_gainers import load_env, fetch_financials, fetch_stock_news, supabase_upsert  # noqa: E402
+
+
+def fetch_all_gainer_rows() -> list[dict]:
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    r = requests.get(
+        f"{url}/rest/v1/daily_gainers"
+        f"?select=trade_date,rank,report_type,ticker,name,news,financials"
+        f"&order=trade_date.asc,rank.asc&limit=500",
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def patch_financials(rows: list[dict]):
+    targets = [r for r in rows if not r.get("financials")]
+    print(f"[재무정보] 대상 {len(targets)}행")
+    for row in targets:
+        fin = fetch_financials(row["ticker"])
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> "
+              f"{'OK' if fin else '실패/데이터없음'}")
+        if fin:
+            supabase_upsert("daily_gainers", [{
+                "trade_date": row["trade_date"], "rank": row["rank"], "report_type": row["report_type"],
+                "ticker": row["ticker"], "name": row["name"], "financials": fin,
+            }], "trade_date,rank,report_type")
+        time.sleep(0.3)
+
+
+def patch_news(rows: list[dict]):
+    targets = [r for r in rows if not r.get("news")]
+    print(f"[뉴스] 대상 {len(targets)}행")
+    for row in targets:
+        articles = fetch_stock_news(row["ticker"], row["trade_date"], max_articles=15)
+        news = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개")
+        if news:
+            supabase_upsert("daily_gainers", [{
+                "trade_date": row["trade_date"], "rank": row["rank"], "report_type": row["report_type"],
+                "ticker": row["ticker"], "name": row["name"], "news": news,
+            }], "trade_date,rank,report_type")
+        time.sleep(0.5)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=["financials", "news", "both"], required=True)
+    args = ap.parse_args()
+
+    load_env()
+    for key in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+        if not os.environ.get(key):
+            print(f"[오류] {key}가 없습니다.")
+            sys.exit(1)
+
+    rows = fetch_all_gainer_rows()
+    print(f"전체 {len(rows)}행 조회됨")
+
+    if args.mode in ("financials", "both"):
+        patch_financials(rows)
+    if args.mode in ("news", "both"):
+        patch_news(rows)
+
+    print("\n완료!")
+
+
+if __name__ == "__main__":
+    main()
