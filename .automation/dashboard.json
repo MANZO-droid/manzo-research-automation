@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-02T02:58:33.924Z",
+  "updated_at": "2026-08-02T03:32:06.408Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,16 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-2c85cef9-3919-43c4-a27c-5df4dc1ed2a4",
+      "event_type": "bugfix",
+      "occurred_at": "2026-08-02T03:32:06.381Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "회장님 지적: 7/16 이전은 재무정보 있는데 7/20 이후 없음(financials 자동화 자체가 없었음), 반대로 7/16 이전은 뉴스 없음. fetch_financials() 신규 구현(네이버 기업실적분석 표) + run_daily/weekly/backfill 전부 연결 + 기존 240행 일괄 패치(financials 130/131, news 확인가능한 만큼) 완료, 사이트 실측 확인",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-f30e5793-2558-41d1-ac50-798902a44437",
       "event_type": "bugfix",
       "occurred_at": "2026-08-02T02:58:33.892Z",
@@ -291,19 +301,6 @@
       "message": "구형 구조 숨김 보관 상태를 대시보드에 반영",
       "data": {
         "warning": "legacy_archive_available"
-      }
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-caa5713b-1bdd-4165-93d8-292884a202b0",
-      "event_type": "structure.compaction_started",
-      "occurred_at": "2026-08-01T05:49:43.182Z",
-      "actor": "agent",
-      "run_id": null,
-      "message": "구형 가시 폴더 숨김 보관 시작",
-      "data": {
-        "migration_id": "2026-08-01-lesson02-compaction",
-        "candidate_count": 13
       }
     }
   ],
