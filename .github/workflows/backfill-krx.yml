@@ -3,6 +3,10 @@ name: "과거 데이터 KRX 백필 (수동)"
 # 2026-08-01: KRX Open API(회장님이 발급·연동해둔 KRX_OPENAPI_KEY)로 네이버
 # 실시간 페이지로는 불가능한 과거 날짜 백필을 처리한다. scripts/backfill_krx_historical.py
 # 참고(AUTOMATION_NOTES.md §8-7). workflow_dispatch로만 수동 실행 - 정기 크론 없음.
+#
+# 2026-08-03 추가: fix_dates(관리종목 등 잘못 포함된 종목 교정)와
+# patch_mode(financials/news/analysis 재패치)도 이 워크플로에서 실행 가능.
+# provider로 gemini/groq 중 선택(한쪽 할당량이 소진되면 다른 쪽으로 전환).
 
 on:
   workflow_dispatch:
@@ -25,6 +29,16 @@ on:
       week_end:
         description: "주간 재계산 시 종료일"
         required: false
+      fix_dates:
+        description: "관리종목 등 잘못 포함된 종목을 교정할 날짜 목록(쉼표 구분) - 이걸 채우면 위 항목 전부 무시됨"
+        required: false
+      patch_mode:
+        description: "financials|news|analysis|both - 이걸 채우면 위 항목 전부 무시됨(fix_dates보다 우선순위 낮음)"
+        required: false
+      provider:
+        description: "gemini 또는 groq (fix_dates/patch_mode=analysis에서 사용)"
+        required: false
+        default: gemini
 
 jobs:
   backfill:
@@ -39,23 +53,30 @@ jobs:
 
       - run: pip install requests beautifulsoup4 google-generativeai groq
 
-      - name: 백필 실행
+      - name: 실행
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
-          ARGS=""
-          if [ -n "${{ inputs.weekly_date }}" ]; then
-            ARGS="--recompute-weekly ${{ inputs.weekly_date }} --week-start ${{ inputs.week_start }} --week-end ${{ inputs.week_end }}"
-          elif [ -n "${{ inputs.dates }}" ]; then
-            ARGS="--dates ${{ inputs.dates }}"
-          elif [ -n "${{ inputs.date_from }}" ]; then
-            ARGS="--from ${{ inputs.date_from }} --to ${{ inputs.date_to }}"
+          if [ -n "${{ inputs.fix_dates }}" ]; then
+            python -u scripts/fix_excluded_gainers.py --dates "${{ inputs.fix_dates }}" --provider "${{ inputs.provider }}"
+          elif [ -n "${{ inputs.patch_mode }}" ]; then
+            python -u scripts/patch_gainer_fields.py --mode "${{ inputs.patch_mode }}" --provider "${{ inputs.provider }}"
           else
-            echo "입력값이 없습니다. dates 또는 date_from/date_to 또는 weekly_date를 지정하세요."
-            exit 1
+            ARGS=""
+            if [ -n "${{ inputs.weekly_date }}" ]; then
+              ARGS="--recompute-weekly ${{ inputs.weekly_date }} --week-start ${{ inputs.week_start }} --week-end ${{ inputs.week_end }}"
+            elif [ -n "${{ inputs.dates }}" ]; then
+              ARGS="--dates ${{ inputs.dates }}"
+            elif [ -n "${{ inputs.date_from }}" ]; then
+              ARGS="--from ${{ inputs.date_from }} --to ${{ inputs.date_to }}"
+            else
+              echo "입력값이 없습니다. dates/date_from/date_to/weekly_date/fix_dates/patch_mode 중 하나를 지정하세요."
+              exit 1
+            fi
+            python -u scripts/backfill_krx_historical.py $ARGS
           fi
-          python -u scripts/backfill_krx_historical.py $ARGS

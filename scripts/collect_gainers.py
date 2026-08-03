@@ -75,17 +75,53 @@ def _get_etf_tickers() -> set:
     return _ETF_TICKER_CACHE
 
 
-def classify_excluded(ticker: str, name: str) -> str | None:
+_ADMIN_ISSUE_CACHE: dict[str, dict] = {}  # base_dd(YYYYMMDD) -> {ticker: reason}
+
+
+def _get_admin_issue_tickers(base_dd: str) -> dict:
+    """KRX Open API(KRX_OPENAPI_KEY)의 종목기본정보에서 SECT_TP_NM(소속부)에
+    "관리종목"·"정리매매"가 포함된 종목을 조회해 {ticker: 사유} 로 반환한다.
+    2026-08-02 추가 - 케이엠제약(225430)이 관리종목인데 Top10에 섞여 있던 걸
+    회장님이 지적해 발견(그 전까지는 이 필터가 아예 없었음, KRX_ID/KRX_PW
+    로그인이 필요한 줄 알았는데 KRX_OPENAPI_KEY로 로그인 없이 조회 가능했다)."""
+    global _ADMIN_ISSUE_CACHE
+    if base_dd in _ADMIN_ISSUE_CACHE:
+        return _ADMIN_ISSUE_CACHE[base_dd]
+    result: dict = {}
+    key = os.environ.get("KRX_OPENAPI_KEY")
+    if not key:
+        _ADMIN_ISSUE_CACHE[base_dd] = result
+        return result
+    for market in ("stk", "ksq"):
+        try:
+            r = requests.get(
+                f"https://data-dbg.krx.co.kr/svc/apis/sto/{market}_isu_base_info",
+                headers={"AUTH_KEY": key}, params={"basDd": base_dd}, timeout=20,
+            )
+            for row in r.json().get("OutBlock_1", []):
+                sect = row.get("SECT_TP_NM", "")
+                if "관리종목" in sect:
+                    result[row["ISU_SRT_CD"]] = "관리종목"
+                elif "정리매매" in sect:
+                    result[row["ISU_SRT_CD"]] = "정리매매"
+        except Exception as e:
+            print(f"  [관리종목 조회 오류] {market} {base_dd}: {e}")
+    _ADMIN_ISSUE_CACHE[base_dd] = result
+    return result
+
+
+def classify_excluded(ticker: str, name: str, base_dd: str | None = None) -> str | None:
     """Top10에서 제외해야 하면 사유 문자열, 포함해도 되면 None을 반환한다.
 
     확인된 사실: ETN은 상품명에 항상 "ETN"이 포함되고, 우선주는 종목명이
     (숫자)우(B)로 끝나는 KRX 표기 관례를 따른다(예: 진흥기업2우B). ETF는
     브랜드명(KODEX/TIGER 등)만으로 이름에서 판별할 수 없어 네이버 ETF
-    목록 API로 종목코드를 직접 대조한다.
+    목록 API로 종목코드를 직접 대조한다. 관리종목·정리매매는 KRX Open API
+    종목기본정보의 SECT_TP_NM(소속부)로 판별한다(KRX_OPENAPI_KEY 필요 -
+    없으면 이 검사만 조용히 건너뛴다).
 
-    확인 필요: 관리종목·정리매매는 로그인 없이 공개된 API를 찾지 못해
-    아직 판별하지 않는다. KRX Data Marketplace 계정(KRX_ID/KRX_PW)이
-    준비되면 공식 관리종목현황 API로 이 함수에 조건을 추가해야 한다.
+    base_dd(YYYYMMDD)를 주면 그 날짜 기준으로 조회하고(백필용), 생략하면
+    오늘(KST) 기준 - 매일 자동 실행은 실행 당일 상태만 알면 되므로 충분하다.
     """
     if "ETN" in name.upper():
         return "ETN"
@@ -93,6 +129,11 @@ def classify_excluded(ticker: str, name: str) -> str | None:
         return "ETF"
     if re.search(r"\d?우(B)?$", name):
         return "우선주"
+    if base_dd is None:
+        base_dd = datetime.now(KST).strftime("%Y%m%d")
+    admin_issue = _get_admin_issue_tickers(base_dd)
+    if ticker in admin_issue:
+        return admin_issue[ticker]
     return None
 
 
@@ -225,7 +266,7 @@ def get_daily_top10(date_str: str) -> list[dict]:
         if s["ticker"] in seen:
             continue
         seen.add(s["ticker"])
-        reason = classify_excluded(s["ticker"], s["name"])
+        reason = classify_excluded(s["ticker"], s["name"], base_dd=date_str.replace("-", ""))
         if reason:
             print(f"  [제외] {s['name']} ({s['ticker']}) - {reason}")
             continue
@@ -579,7 +620,7 @@ def build_analysis_prompt(name: str, ticker: str, date_str: str, change_pct: flo
     스크립트가 별도 할당량의 Gemini로 이 함수를 재사용함 - analyze_stock 참고)."""
     period = "주간" if is_weekly else "당일"
     arts_text = "\n".join(
-        f"[기사 {i}] ({a['date']}) {a['title']}\n{a['summary']}"
+        f"[기사 {i}] ({a.get('date', date_str)}) {a['title']}\n{a['summary']}"
         for i, a in enumerate(articles, 1)
     )
 

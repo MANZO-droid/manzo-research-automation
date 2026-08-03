@@ -64,13 +64,13 @@ def fetch_krx_day(base_dd: str, market: str) -> list[dict]:
     return out
 
 
-def build_daily_top10(all_stocks: list[dict]) -> list[dict]:
+def build_daily_top10(all_stocks: list[dict], base_dd: str) -> list[dict]:
     seen, top10 = set(), []
     for s in sorted(all_stocks, key=lambda x: x["changePct"], reverse=True):
         if s["ticker"] in seen:
             continue
         seen.add(s["ticker"])
-        reason = classify_excluded(s["ticker"], s["name"])
+        reason = classify_excluded(s["ticker"], s["name"], base_dd=base_dd)
         if reason:
             print(f"  [제외] {s['name']} ({s['ticker']}) - {reason}")
             continue
@@ -96,18 +96,37 @@ def build_volume_top10(all_stocks: list[dict], date_str: str) -> list[dict]:
     return top10
 
 
+class GeminiQuotaExhausted(Exception):
+    """Gemini 429가 재시도 후에도 풀리지 않을 때 발생시켜 실행을 중단시킨다.
+    2026-08-02 수정: 예전엔 여기서 그냥 빈 값("","")을 반환하고 계속 진행해서
+    할당량 소진 이후의 모든 종목이 리포트 없이 저장되는 걸 눈치채지 못했다
+    (76행이 조용히 비어버린 뒤 회장님이 발견). Groq 경로(collect_gainers.py의
+    GroqQuotaExhausted)와 동일하게 실패를 눈에 띄게 만든다."""
+
+
 def analyze_stock_gemini(model, name: str, ticker: str, date_str: str,
                          change_pct: float, articles: list[dict],
-                         technicals: dict | None = None, is_weekly: bool = False) -> tuple[str, str]:
+                         technicals: dict | None = None, is_weekly: bool = False,
+                         max_retries: int = 4) -> tuple[str, str]:
     if not articles:
         return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", ""
     prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
-    try:
-        resp = model.generate_content(prompt)
-        return parse_analysis_response(resp.text)
-    except Exception as e:
-        print(f"    [Gemini 오류] {e}")
-        return "", ""
+    wait = 30
+    for attempt in range(max_retries):
+        try:
+            resp = model.generate_content(prompt)
+            return parse_analysis_response(resp.text)
+        except Exception as e:
+            if "429" not in str(e):
+                print(f"    [Gemini 오류(재시도 안 함)] {e}")
+                return "", ""
+            print(f"    [Gemini 429] {wait}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
+            time.sleep(wait)
+            wait = min(wait * 2, 120)
+    raise GeminiQuotaExhausted(
+        f"Gemini 429가 {max_retries}회 재시도 후에도 풀리지 않았습니다. 무료 할당량이 "
+        "소진된 것으로 보여 자동 실행을 중단합니다. 할당량 회복 후 사람이 직접 다시 실행해야 합니다."
+    )
 
 
 def backfill_date(client, date_str: str):
@@ -125,7 +144,7 @@ def backfill_date(client, date_str: str):
     save_raw_candidates(date_str, kospi, kosdaq)
 
     all_stocks = kospi + kosdaq
-    gainers = build_daily_top10(all_stocks)
+    gainers = build_daily_top10(all_stocks, base_dd)
     volume_stocks = build_volume_top10(all_stocks, date_str)
     print(f"  gainers {len(gainers)}개, volumeStocks {len(volume_stocks)}개")
 
@@ -212,7 +231,11 @@ def main():
     client = genai.GenerativeModel("gemini-2.5-flash")
 
     if args.weekly_date:
-        recompute_weekly(client, args.weekly_date, args.week_start, args.week_end)
+        try:
+            recompute_weekly(client, args.weekly_date, args.week_start, args.week_end)
+        except GeminiQuotaExhausted as e:
+            print(f"\n[중단] {e}")
+            sys.exit(1)
         print("\n완료!")
         return
 
@@ -234,7 +257,11 @@ def main():
 
     print(f"백필 대상 날짜({len(dates)}개): {dates}")
     for date_str in dates:
-        backfill_date(client, date_str)
+        try:
+            backfill_date(client, date_str)
+        except GeminiQuotaExhausted as e:
+            print(f"\n[중단] {e} (이미 처리된 날짜까지는 저장됨)")
+            sys.exit(1)
 
     print("\n전체 완료!")
 

@@ -10,19 +10,30 @@
 지적). fetch_financials()가 새로 추가된 뒤 이 스크립트로 양쪽을 한 번에
 메운다.
 
+2026-08-02 추가: --mode analysis - 7/20~8/1 KRX 백필 도중 Gemini 무료
+할당량이 소진되면서(429) riseReason/chartAnalysis가 조용히 빈 값으로
+남은 76행을 발견(회장님 지적). analyze_stock_gemini()가 Groq 경로와 달리
+실패해도 멈추지 않고 계속 진행하는 구조였던 게 원인 - 이미 저장된 news/
+technicals를 재사용해 Gemini 분석만 다시 돌린다(뉴스·재무정보 재수집 안 함).
+
 사용법:
   python scripts/patch_gainer_fields.py --mode financials
   python scripts/patch_gainer_fields.py --mode news
-  python scripts/patch_gainer_fields.py --mode both
+  python scripts/patch_gainer_fields.py --mode analysis
+  python scripts/patch_gainer_fields.py --mode both   # financials + news만(기존 동작 유지)
 
-필요 환경변수 (.env.local): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY 불필요(뉴스만 패치, 분석 안 함)
+필요 환경변수 (.env.local): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+  --mode analysis를 쓸 때만 GEMINI_API_KEY 추가로 필요.
 """
 import argparse, os, sys, time
 
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from collect_gainers import load_env, fetch_financials, fetch_stock_news, supabase_upsert  # noqa: E402
+from collect_gainers import (  # noqa: E402
+    load_env, fetch_financials, fetch_stock_news, supabase_upsert,
+    build_analysis_prompt, parse_analysis_response,
+)
 
 
 def fetch_all_gainer_rows() -> list[dict]:
@@ -30,7 +41,8 @@ def fetch_all_gainer_rows() -> list[dict]:
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     r = requests.get(
         f"{url}/rest/v1/daily_gainers"
-        f"?select=trade_date,rank,report_type,ticker,name,news,financials"
+        f"?select=trade_date,rank,report_type,ticker,name,news,financials,"
+        f"change_pct,technicals,rise_reason,chart_analysis"
         f"&order=trade_date.asc,rank.asc&limit=500",
         headers={"apikey": key, "Authorization": f"Bearer {key}"},
         timeout=30,
@@ -69,13 +81,88 @@ def patch_news(rows: list[dict]):
         time.sleep(0.5)
 
 
+def analyze_with_retry_gemini(model, prompt: str, max_retries: int = 3) -> str:
+    wait = 30
+    for attempt in range(max_retries):
+        try:
+            return model.generate_content(prompt).text
+        except Exception as e:
+            msg = str(e)
+            if "429" not in msg:
+                print(f"    [Gemini 오류(재시도 안 함)] {e}")
+                return ""
+            print(f"    [Gemini 429] {wait}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
+            time.sleep(wait)
+            wait = min(wait * 2, 120)
+    print("    [Gemini 429] 재시도 소진 - 이 종목은 건너뜀(다음에 다시 실행)")
+    return ""
+
+
+def analyze_with_retry_groq(client, prompt: str, max_retries: int = 4) -> str:
+    from groq import RateLimitError
+    wait = 60
+    for attempt in range(max_retries):
+        try:
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile", max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return resp.choices[0].message.content or ""
+        except RateLimitError:
+            print(f"    [Groq 429] {wait}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
+            time.sleep(wait)
+            wait = min(wait * 2, 120)
+        except Exception as e:
+            print(f"    [Groq 오류(재시도 안 함)] {e}")
+            return ""
+    print("    [Groq 429] 재시도 소진 - 이 종목은 건너뜀(다음에 다시 실행)")
+    return ""
+
+
+def patch_analysis(rows: list[dict], provider: str):
+    if provider == "gemini":
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        call = lambda prompt: analyze_with_retry_gemini(model, prompt)  # noqa: E731
+    else:
+        from groq import Groq
+        client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+        call = lambda prompt: analyze_with_retry_groq(client, prompt)  # noqa: E731
+
+    # 뉴스는 있는데 chartAnalysis가 비어있는 행만 대상(뉴스가 아예 없는 행은
+    # "기사를 수집하지 못했습니다"가 정상 - 건드리지 않는다).
+    targets = [r for r in rows if r.get("news") and not r.get("chart_analysis")]
+    print(f"[분석 재생성/{provider}] 대상 {len(targets)}행")
+    for row in targets:
+        prompt = build_analysis_prompt(
+            row["name"], row["ticker"], row["trade_date"], float(row["change_pct"] or 0),
+            row["news"], technicals=row.get("technicals"), is_weekly=(row["report_type"] == "weekly"),
+        )
+        text = call(prompt)
+        rise, chart = parse_analysis_response(text) if text else ("", "")
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> "
+              f"{'OK' if chart else '실패'}")
+        if rise and chart:
+            supabase_upsert("daily_gainers", [{
+                "trade_date": row["trade_date"], "rank": row["rank"], "report_type": row["report_type"],
+                "ticker": row["ticker"], "name": row["name"],
+                "rise_reason": rise, "chart_analysis": chart,
+            }], "trade_date,rank,report_type")
+        time.sleep(1.5)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["financials", "news", "both"], required=True)
+    ap.add_argument("--mode", choices=["financials", "news", "analysis", "both"], required=True)
+    ap.add_argument("--provider", choices=["gemini", "groq"], default="gemini")
     args = ap.parse_args()
 
     load_env()
-    for key in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+    required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
+    if args.mode == "analysis":
+        required.append("GEMINI_API_KEY" if args.provider == "gemini" else "GROQ_API_KEY")
+    for key in required:
         if not os.environ.get(key):
             print(f"[오류] {key}가 없습니다.")
             sys.exit(1)
@@ -87,6 +174,8 @@ def main():
         patch_financials(rows)
     if args.mode in ("news", "both"):
         patch_news(rows)
+    if args.mode == "analysis":
+        patch_analysis(rows, args.provider)
 
     print("\n완료!")
 
