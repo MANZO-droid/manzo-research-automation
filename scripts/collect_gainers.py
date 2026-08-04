@@ -118,7 +118,10 @@ def classify_excluded(ticker: str, name: str, base_dd: str | None = None) -> str
     브랜드명(KODEX/TIGER 등)만으로 이름에서 판별할 수 없어 네이버 ETF
     목록 API로 종목코드를 직접 대조한다. 관리종목·정리매매는 KRX Open API
     종목기본정보의 SECT_TP_NM(소속부)로 판별한다(KRX_OPENAPI_KEY 필요 -
-    없으면 이 검사만 조용히 건너뛴다).
+    없으면 이 검사만 조용히 건너뛴다). 리츠는 종목명이 항상 "리츠"로
+    끝나는 KRX 표기 관례로 판별한다(예: 마스턴프리미어리츠, SK리츠 -
+    2026-08-04 추가, 재무정보 표(기업실적분석)가 없어 데이터가 항상
+    비는 문제가 있어 회장님이 제외 요청).
 
     base_dd(YYYYMMDD)를 주면 그 날짜 기준으로 조회하고(백필용), 생략하면
     오늘(KST) 기준 - 매일 자동 실행은 실행 당일 상태만 알면 되므로 충분하다.
@@ -129,6 +132,8 @@ def classify_excluded(ticker: str, name: str, base_dd: str | None = None) -> str
         return "ETF"
     if re.search(r"\d?우(B)?$", name):
         return "우선주"
+    if name.endswith("리츠"):
+        return "리츠"
     if base_dd is None:
         base_dd = datetime.now(KST).strftime("%Y%m%d")
     admin_issue = _get_admin_issue_tickers(base_dd)
