@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-08-04T14:12:34.551Z",
+  "updated_at": "2026-08-04T15:30:17.954Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,16 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-00fce411-03b6-4b50-9f4b-f252327d00d0",
+      "event_type": "bugfix",
+      "occurred_at": "2026-08-04T15:30:17.680Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "리츠 제외 규칙 추가(classify_excluded, 종목명 '리츠' 종료 패턴) - 마스턴프리미어리츠가 8/3 Top10에 섞여있던 것 실제 KRX 데이터로 교체(Groq 사용). 7/12(일요일, 거래일 아님)에 잘못 있던 9종목 레거시 데이터는 통째로 삭제. 전체 250행 재감사 위반 0건",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-25eefd81-4fc1-4f3c-9792-54038706d9f1",
       "event_type": "bugfix",
       "occurred_at": "2026-08-04T14:12:34.144Z",
@@ -287,18 +297,6 @@
         "migration_id": "2026-08-01-lesson02-compaction",
         "archive_root": ".automation/archive/2026-08-01-lesson02-compaction/legacy-root",
         "moved_count": 13
-      }
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-3f27301a-c2b9-4bac-87ba-104ea548cc91",
-      "event_type": "migration.completed",
-      "occurred_at": "2026-08-01T05:49:43.183Z",
-      "actor": "agent",
-      "run_id": null,
-      "message": "지난 2강 번호형 구조 마이그레이션 완료",
-      "data": {
-        "migration_id": "2026-08-01-lesson02-compaction"
       }
     }
   ],
