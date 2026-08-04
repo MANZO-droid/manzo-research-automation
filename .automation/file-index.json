@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-file-index/v1",
-  "updated_at": "2026-08-02T03:32:06.408Z",
+  "updated_at": "2026-08-04T14:12:34.551Z",
   "files": [
     {
       "path": "input/manzo-real-2026-07-13-049080.txt",
@@ -11,7 +11,7 @@
       "role": "input",
       "status": "approved",
       "source": "student",
-      "indexed_at": "2026-08-02T03:32:06.408Z"
+      "indexed_at": "2026-08-04T14:12:34.551Z"
     },
     {
       "path": "reference/policies/confirmed-rules.md",
@@ -22,7 +22,7 @@
       "role": "policy",
       "status": "approved",
       "source": "student",
-      "indexed_at": "2026-08-02T03:32:06.408Z"
+      "indexed_at": "2026-08-04T14:12:34.551Z"
     },
     {
       "path": "reference/policies/manzo-output-contract.md",
@@ -33,7 +33,7 @@
       "role": "policy",
       "status": "approved",
       "source": "student",
-      "indexed_at": "2026-08-02T03:32:06.408Z"
+      "indexed_at": "2026-08-04T14:12:34.551Z"
     }
   ]
 }
