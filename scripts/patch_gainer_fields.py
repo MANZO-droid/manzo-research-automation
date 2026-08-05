@@ -82,10 +82,17 @@ def patch_news(rows: list[dict]):
 
 
 def analyze_with_retry_gemini(model, prompt: str, max_retries: int = 3) -> str:
+    from collect_gainers import has_language_issue
     wait = 30
+    last_text = ""
     for attempt in range(max_retries):
         try:
-            return model.generate_content(prompt).text
+            text = model.generate_content(prompt).text
+            if has_language_issue(text):
+                last_text = text
+                print(f"    [Gemini 언어 오염] 일본어 감지, 재시도 ({attempt + 1}/{max_retries})...")
+                continue
+            return text
         except Exception as e:
             msg = str(e)
             if "429" not in msg:
@@ -94,20 +101,30 @@ def analyze_with_retry_gemini(model, prompt: str, max_retries: int = 3) -> str:
             print(f"    [Gemini 429] {wait}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
             time.sleep(wait)
             wait = min(wait * 2, 120)
+    if last_text:
+        print("    [Gemini 언어 오염] 재시도 소진 - 이 종목은 건너뜀(다음에 다시 실행)")
+        return ""
     print("    [Gemini 429] 재시도 소진 - 이 종목은 건너뜀(다음에 다시 실행)")
     return ""
 
 
 def analyze_with_retry_groq(client, prompt: str, max_retries: int = 4) -> str:
     from groq import RateLimitError
+    from collect_gainers import has_language_issue
     wait = 60
+    last_text = ""
     for attempt in range(max_retries):
         try:
             resp = client.chat.completions.create(
                 model="llama-3.3-70b-versatile", max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.choices[0].message.content or ""
+            text = resp.choices[0].message.content or ""
+            if has_language_issue(text):
+                last_text = text
+                print(f"    [Groq 언어 오염] 일본어 감지, 재시도 ({attempt + 1}/{max_retries})...")
+                continue
+            return text
         except RateLimitError:
             print(f"    [Groq 429] {wait}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
             time.sleep(wait)
@@ -115,6 +132,9 @@ def analyze_with_retry_groq(client, prompt: str, max_retries: int = 4) -> str:
         except Exception as e:
             print(f"    [Groq 오류(재시도 안 함)] {e}")
             return ""
+    if last_text:
+        print("    [Groq 언어 오염] 재시도 소진 - 이 종목은 건너뜀(다음에 다시 실행)")
+        return ""
     print("    [Groq 429] 재시도 소진 - 이 종목은 건너뜀(다음에 다시 실행)")
     return ""
 

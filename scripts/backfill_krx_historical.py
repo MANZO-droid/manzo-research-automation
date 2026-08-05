@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, fetch_stock_news,
     fetch_financials, build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
-    save_raw_candidates, save_to_supabase, get_weekly_top10, KST,
+    save_raw_candidates, save_to_supabase, get_weekly_top10, KST, has_language_issue,
 )
 from krx_calendar import is_trading_day  # noqa: E402
 
@@ -112,10 +112,16 @@ def analyze_stock_gemini(model, name: str, ticker: str, date_str: str,
         return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", ""
     prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
     wait = 30
+    last_text = ""
     for attempt in range(max_retries):
         try:
             resp = model.generate_content(prompt)
-            return parse_analysis_response(resp.text)
+            text = resp.text
+            if has_language_issue(text):
+                last_text = text
+                print(f"    [Gemini 언어 오염] 일본어 감지, 재시도 ({attempt + 1}/{max_retries})...")
+                continue
+            return parse_analysis_response(text)
         except Exception as e:
             if "429" not in str(e):
                 print(f"    [Gemini 오류(재시도 안 함)] {e}")
@@ -123,6 +129,9 @@ def analyze_stock_gemini(model, name: str, ticker: str, date_str: str,
             print(f"    [Gemini 429] {wait}초 대기 후 재시도 ({attempt + 1}/{max_retries})...")
             time.sleep(wait)
             wait = min(wait * 2, 120)
+    if last_text:
+        print("    [Gemini 언어 오염] 재시도 소진 - 마지막 응답을 그대로 사용")
+        return parse_analysis_response(last_text)
     raise GeminiQuotaExhausted(
         f"Gemini 429가 {max_retries}회 재시도 후에도 풀리지 않았습니다. 무료 할당량이 "
         "소진된 것으로 보여 자동 실행을 중단합니다. 할당량 회복 후 사람이 직접 다시 실행해야 합니다."

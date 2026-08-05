@@ -50,6 +50,8 @@ def main():
             print(f"[오류] {key}가 없습니다.")
             sys.exit(1)
 
+    from collect_gainers import has_language_issue
+
     if args.provider == "gemini":
         import google.generativeai as genai
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -59,7 +61,11 @@ def main():
             wait = 30
             for attempt in range(4):
                 try:
-                    return model.generate_content(prompt).text
+                    text = model.generate_content(prompt).text
+                    if has_language_issue(text):
+                        print(f"    [언어 오염] 일본어 감지, 재시도 ({attempt+1}/4)...")
+                        continue
+                    return text
                 except Exception as e:
                     if "429" not in str(e):
                         print(f"    [오류] {e}")
@@ -80,7 +86,11 @@ def main():
                         model="llama-3.3-70b-versatile", max_tokens=1024,
                         messages=[{"role": "user", "content": prompt}],
                     )
-                    return resp.choices[0].message.content or ""
+                    text = resp.choices[0].message.content or ""
+                    if has_language_issue(text):
+                        print(f"    [언어 오염] 일본어 감지, 재시도 ({attempt+1}/4)...")
+                        continue
+                    return text
                 except Exception as e:
                     if "429" not in str(e) and "rate_limit" not in str(e).lower():
                         print(f"    [오류] {e}")

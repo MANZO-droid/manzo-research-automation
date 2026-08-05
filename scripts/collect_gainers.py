@@ -588,8 +588,19 @@ class GroqQuotaExhausted(Exception):
     """Groq 429가 재시도 후에도 풀리지 않을 때 발생시켜 전체 실행을 중단시킨다."""
 
 
+_KANA_RE = re.compile(r"[぀-ヿ]")  # 히라가나/가타카나 - 한국어에는 없음
+
+
+def has_language_issue(text: str) -> bool:
+    """Groq(llama-3.3-70b)가 "반드시 순수 한국어로만 작성" 지시를 가끔 무시하고
+    일본어로 응답하는 사례가 실제로 여러 건 확인됐다(2026-08-04/05, 회장님
+    지적). 히라가나/가타카나 존재를 언어 오염의 신호로 쓴다."""
+    return bool(_KANA_RE.search(text))
+
+
 def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
     wait = 60
+    last_text = ""
     for attempt in range(max_retries):
         try:
             resp = client.chat.completions.create(
@@ -597,7 +608,12 @@ def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
                 max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.choices[0].message.content or ""
+            text = resp.choices[0].message.content or ""
+            if has_language_issue(text):
+                last_text = text
+                print(f"    [Groq 언어 오염] 일본어 감지, 재시도 ({attempt+1}/{max_retries})...")
+                continue
+            return text
         except RateLimitError as e:
             retry_after = None
             try:
@@ -611,6 +627,11 @@ def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
         except APIStatusError as e:
             print(f"    [Groq 오류] {e}")
             return ""
+    if last_text:
+        # 언어 오염이 재시도로도 안 풀림 - 할당량 문제가 아니므로 중단시키지 않고
+        # 마지막 응답을 그대로 반환한다(사후 검사로 다시 잡아낼 수 있음).
+        print("    [Groq 언어 오염] 재시도 소진 - 마지막 응답을 그대로 사용")
+        return last_text
     raise GroqQuotaExhausted(
         f"Groq 429(rate_limit_error)가 {max_retries}회 재시도 후에도 풀리지 않았습니다. "
         "무료 할당량이 소진된 것으로 보여 자동 실행을 중단합니다. 할당량 회복 후 사람이 "
