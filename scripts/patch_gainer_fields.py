@@ -216,15 +216,55 @@ def patch_short(rows: list[dict], provider: str):
         time.sleep(1.5)
 
 
+def patch_widenews(rows: list[dict], provider: str):
+    """"뉴스를 수집하지 못했습니다" 상태인 행을 대상으로, 그 날짜부터 앞선
+    1주일(days_before=7, days_after=0)까지 넓혀서 다시 검색한다(2026-08-06,
+    회장님 요청). 기사를 찾으면 news 갱신 + riseReason/chartAnalysis도
+    그 기사를 근거로 재생성. 그래도 못 찾으면 손대지 않는다(지어내지 않음)."""
+    if provider == "gemini":
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        call = lambda prompt: analyze_with_retry_gemini(model, prompt)  # noqa: E731
+    else:
+        from groq import Groq
+        client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+        call = lambda prompt: analyze_with_retry_groq(client, prompt)  # noqa: E731
+
+    targets = [r for r in rows if "뉴스 기사를 수집하지 못했습니다" in (r.get("rise_reason") or "")]
+    print(f"[뉴스 없음 - 1주일 확장 재검색/{provider}] 대상 {len(targets)}행")
+    for row in targets:
+        articles = fetch_stock_news(row["ticker"], row["trade_date"], max_articles=15,
+                                    days_before=7, days_after=0)
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개")
+        if not articles:
+            continue
+        news = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        prompt = build_analysis_prompt(
+            row["name"], row["ticker"], row["trade_date"], float(row["change_pct"] or 0),
+            articles, technicals=row.get("technicals"), is_weekly=(row["report_type"] == "weekly"),
+        )
+        text = call(prompt)
+        rise, chart = parse_analysis_response(text) if text else ("", "")
+        print(f"    -> {'OK(' + str(len(rise)) + '/' + str(len(chart)) + '자)' if rise and chart else '분석 실패'}")
+        if rise and chart:
+            supabase_upsert("daily_gainers", [{
+                "trade_date": row["trade_date"], "rank": row["rank"], "report_type": row["report_type"],
+                "ticker": row["ticker"], "name": row["name"],
+                "news": news, "rise_reason": rise, "chart_analysis": chart,
+            }], "trade_date,rank,report_type")
+        time.sleep(1.5)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["financials", "news", "analysis", "short", "both"], required=True)
+    ap.add_argument("--mode", choices=["financials", "news", "analysis", "short", "widenews", "both"], required=True)
     ap.add_argument("--provider", choices=["gemini", "groq"], default="gemini")
     args = ap.parse_args()
 
     load_env()
     required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
-    if args.mode in ("analysis", "short"):
+    if args.mode in ("analysis", "short", "widenews"):
         required.append("GEMINI_API_KEY" if args.provider == "gemini" else "GROQ_API_KEY")
     for key in required:
         if not os.environ.get(key):
@@ -242,6 +282,8 @@ def main():
         patch_analysis(rows, args.provider)
     if args.mode == "short":
         patch_short(rows, args.provider)
+    if args.mode == "widenews":
+        patch_widenews(rows, args.provider)
 
     print("\n완료!")
 

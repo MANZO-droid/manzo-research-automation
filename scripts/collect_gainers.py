@@ -527,7 +527,12 @@ def fetch_article_summary(url: str) -> str:
         return ""
 
 
-def fetch_stock_news(ticker: str, target_date: str, max_articles: int = 15) -> list[dict]:
+def fetch_stock_news(ticker: str, target_date: str, max_articles: int = 15,
+                     days_before: int = 5, days_after: int = 5) -> list[dict]:
+    """target_date 기준 days_before일 전 ~ days_after일 후 사이의 종목 뉴스를 수집한다.
+    기본은 대칭 ±5일(기존 동작 유지). 뉴스가 아예 안 잡히는 종목을 뒤늦게 다시
+    확인할 때는 days_after=0, days_before=7처럼 "그날부터 앞선 1주일"만 보도록
+    호출한다(2026-08-06, 회장님 요청 - patch_gainer_fields.py --mode news 참고)."""
     articles = []
     target = datetime.strptime(target_date, "%Y-%m-%d").date()
 
@@ -559,9 +564,8 @@ def fetch_stock_news(ticker: str, target_date: str, max_articles: int = 15) -> l
             except Exception:
                 continue
 
-            delta = abs((art_date - target).days)
-            if delta > 5:
-                if art_date < target - timedelta(days=5):
+            if art_date > target + timedelta(days=days_after) or art_date < target - timedelta(days=days_before):
+                if art_date < target - timedelta(days=days_before):
                     break
                 continue
 
