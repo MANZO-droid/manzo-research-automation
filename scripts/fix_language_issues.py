@@ -21,7 +21,7 @@ from collect_gainers import (  # noqa: E402
 )
 
 TARGETS = [
-    ("2026-08-06", 4), ("2026-08-06", 7),
+    ("2026-08-06", 7),
 ]
 
 
