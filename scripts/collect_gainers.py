@@ -872,7 +872,8 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
 
 # ─── 거래대금 상위(volumeStocks) 수집 ────────────────────────────────────────
 
-def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = None) -> dict:
+def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = None,
+                           trade_amount: int | None = None) -> dict:
     """네이버 종목 페이지(frgn.naver)에서 기관·외국인 순매매량(주)을 읽어 종가와
     곱해 순매수 금액(원)을 근사한다. 개인은 -(기관+외국인)의 역산값(사이트 UI
     안내문과 동일한 근사 방식 - index.html의 "※ 개인 순매수는..." 참고).
@@ -889,7 +890,15 @@ def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = Non
             )
             r.encoding = "euc-kr"
             soup = BeautifulSoup(r.text, "html.parser")
-            table = soup.select("table")[3]  # "외국인 기관 순매매 거래량" 표(날짜별)
+            # "외국인 기관 순매매 거래량" 표를 고정 인덱스가 아니라 summary 텍스트로
+            # 찾는다 - ETF/ETN은 앞쪽 "주요 시세" 표가 1개뿐이라 인덱스가 밀려서
+            # 페이지 네비게이션 표를 순매수 표로 잘못 읽는 버그가 있었다(2026-08-08
+            # 발견 - 거래대금 94억원짜리 종목의 기관 순매수가 582원으로 나옴,
+            # fetch_financials의 table.tb_type1_ifrs 인덱스 버그와 같은 유형).
+            table = soup.find("table", summary=lambda s: s and "외국인" in s and "기관" in s)
+            if table is None:
+                print(f"    [순매수 표 없음] {ticker} - 표 구조가 예상과 다름")
+                break
             for row in table.select("tr"):
                 tds = row.select("td")
                 if len(tds) < 9:
@@ -906,6 +915,17 @@ def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = Non
                     frgn_shares = int(frgn_raw)
                 except ValueError:
                     continue
+                # 정합성 검사: 기관·외국인 순매매량(주)은 그날 총거래량을 넘을 수 없다.
+                # KRX 원본 거래대금(trade_amount, 원)을 종가로 나눠 총거래량(주)을
+                # 역산해 기준으로 삼는다 - 네이버 표의 거래량 컬럼(tds[4])은 일부
+                # ETF에서 실제로는 다른 값(거래대금으로 추정)을 보여주는 이상 사례가
+                # 있어(2026-08-08 발견, 252670에서 기관 순매매량이 총거래량의 2배로
+                # 계산됨) 이 컬럼 자체를 기준으로 쓸 수 없다.
+                if trade_amount and close:
+                    implied_volume = trade_amount / close
+                    if abs(inst_shares) > implied_volume * 1.5 or abs(frgn_shares) > implied_volume * 1.5:
+                        print(f"    [순매수 이상치] {ticker} {date_text}: 순매매량이 추정 총거래량({implied_volume:.0f}주)을 초과 - 저장 안 함")
+                        return {"individual": 0, "institution": 0, "foreign": 0}
                 institution = inst_shares * close
                 foreign = frgn_shares * close
                 individual = -(institution + foreign)
@@ -1012,7 +1032,7 @@ def fetch_volume_stocks() -> list[dict]:
         p = prev.get(s["ticker"])
         s["prevRank"] = p["rank"] if p else None
         s["prevTradeAmount"] = p["tradeAmount"] if p else None
-        s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"])
+        s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"], trade_amount=s.get("tradeAmount"))
         time.sleep(0.3)
     return top10
 

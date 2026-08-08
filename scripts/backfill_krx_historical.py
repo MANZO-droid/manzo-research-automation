@@ -91,7 +91,8 @@ def build_volume_top10(all_stocks: list[dict], date_str: str) -> list[dict]:
         s = dict(s)
         s["rank"] = i
         s["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={s['ticker']}"
-        s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"], target_date=date_str)
+        s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"], target_date=date_str,
+                                                trade_amount=s.get("tradeAmount"))
         top10[i - 1] = s
         time.sleep(0.3)
     return top10
