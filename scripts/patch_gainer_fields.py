@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
     load_env, fetch_financials, fetch_stock_news, supabase_upsert,
     build_analysis_prompt, parse_analysis_response,
+    build_chart_only_prompt, parse_chart_only_response,
 )
 
 
@@ -256,15 +257,55 @@ def patch_widenews(rows: list[dict], provider: str):
         time.sleep(1.5)
 
 
+def patch_chartonly(rows: list[dict], provider: str):
+    """chartAnalysis가 비어있는 모든 행을 대상으로, 기술적 지표만 근거로
+    차트 해설을 채운다(2026-08-07, 회장님 요청 - "Top10 종목 하나하나 확인해서
+    차트 해설 없는 것 채워달라"). 뉴스 없는 종목도 차트 분석은 기술적 지표만
+    있으면 가능하므로 news 유무와 무관하게 대상에 포함한다. riseReason은
+    건드리지 않는다(뉴스 없으면 여전히 "수집 못함" 문구 유지 - 정직함 유지)."""
+    if provider == "gemini":
+        import google.generativeai as genai
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        def call(prompt):
+            return analyze_with_retry_gemini(model, prompt)
+    else:
+        from groq import Groq
+        client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+
+        def call(prompt):
+            return analyze_with_retry_groq(client, prompt)
+
+    targets = [r for r in rows if not (r.get("chart_analysis") or "").strip() and r.get("technicals")]
+    print(f"[차트 해설 채우기/{provider}] 대상 {len(targets)}행")
+    for row in targets:
+        prompt = build_chart_only_prompt(
+            row["name"], row["ticker"], row["trade_date"], float(row["change_pct"] or 0),
+            technicals=row.get("technicals"), is_weekly=(row["report_type"] == "weekly"),
+        )
+        text = call(prompt)
+        chart = parse_chart_only_response(text) if text else ""
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> "
+              f"{'OK(' + str(len(chart)) + '자)' if chart else '실패'}")
+        if chart:
+            supabase_upsert("daily_gainers", [{
+                "trade_date": row["trade_date"], "rank": row["rank"], "report_type": row["report_type"],
+                "ticker": row["ticker"], "name": row["name"],
+                "chart_analysis": chart,
+            }], "trade_date,rank,report_type")
+        time.sleep(1.5)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["financials", "news", "analysis", "short", "widenews", "both"], required=True)
+    ap.add_argument("--mode", choices=["financials", "news", "analysis", "short", "widenews", "chartonly", "both"], required=True)
     ap.add_argument("--provider", choices=["gemini", "groq"], default="gemini")
     args = ap.parse_args()
 
     load_env()
     required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
-    if args.mode in ("analysis", "short", "widenews"):
+    if args.mode in ("analysis", "short", "widenews", "chartonly"):
         required.append("GEMINI_API_KEY" if args.provider == "gemini" else "GROQ_API_KEY")
     for key in required:
         if not os.environ.get(key):
@@ -284,6 +325,8 @@ def main():
         patch_short(rows, args.provider)
     if args.mode == "widenews":
         patch_widenews(rows, args.provider)
+    if args.mode == "chartonly":
+        patch_chartonly(rows, args.provider)
 
     print("\n완료!")
 

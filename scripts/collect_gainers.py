@@ -695,6 +695,41 @@ def build_analysis_prompt(name: str, ticker: str, date_str: str, change_pct: flo
 """
 
 
+def build_chart_only_prompt(name: str, ticker: str, date_str: str, change_pct: float,
+                            technicals: dict | None = None, is_weekly: bool = False) -> str:
+    """뉴스 기사가 전혀 없어 riseReason은 못 채우더라도, 차트 분석은 기술적
+    지표만으로 작성 가능하다(2026-08-07 - 회장님이 뉴스 없는 종목의 차트
+    해설 누락을 지적해 추가). build_analysis_prompt의 [chartAnalysis] 부분만
+    떼어낸 버전."""
+    period = "주간" if is_weekly else "당일"
+    t = technicals or {}
+    technicals_section = (
+        f"ma5={t.get('ma5')}, ma20={t.get('ma20')}, ma60={t.get('ma60')}, ma120={t.get('ma120')}, "
+        f"현재가={t.get('current')}, 52주고가={t.get('w52High')}, 52주저가={t.get('w52Low')}, "
+        f"고가대비={t.get('pctFromHigh')}%, 저가대비={t.get('pctFromLow')}%, "
+        f"거래량비율(20일평균 대비)={t.get('volRatio')}, 추세={t.get('trend')}, "
+        f"골든/데드크로스 발생 여부={t.get('cross') or '크로스 없음'}"
+    )
+    return f"""당신은 한국 주식 전문 애널리스트입니다.
+아래 종목의 {period} 차트를 실제 계산된 기술적 지표만 근거로 분석하세요.
+반드시 순수 한국어로만 작성하세요. 한자나 다른 언어를 섞지 마세요.
+
+종목: {name} ({ticker})
+날짜: {date_str}
+{period} 상승률: +{change_pct:.2f}%
+
+=== 실제 계산된 기술적 지표 (반드시 이 수치만 근거로 작성) ===
+{technicals_section}
+
+[chartAnalysis]
+위 수치만 근거로 이동평균선 배열, 거래량 특이점, 지지·저항 구간 등 기술적
+특징과 향후 주목할 가격대 또는 리스크 요인을 150자 이상으로 작성하세요.
+"골든/데드크로스 발생 여부"가 "크로스 없음"이면 골든크로스나 데드크로스가
+발생했다고 쓰지 마세요. 뉴스나 상승 이유는 언급하지 말고 차트/지표
+얘기만 하세요.
+"""
+
+
 def parse_analysis_response(text: str) -> tuple[str, str]:
     rise, chart = "", ""
     m_rise = re.search(r"\[riseReason\](.*?)(?=\[chartAnalysis\]|$)", text, re.DOTALL)
@@ -704,6 +739,11 @@ def parse_analysis_response(text: str) -> tuple[str, str]:
     if m_chart:
         chart = m_chart.group(1).strip()
     return rise, chart
+
+
+def parse_chart_only_response(text: str) -> str:
+    m = re.search(r"\[chartAnalysis\](.*?)$", text, re.DOTALL)
+    return m.group(1).strip() if m else text.strip()
 
 
 def analyze_stock(client, name: str, ticker: str, date_str: str,
