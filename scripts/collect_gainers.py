@@ -989,7 +989,12 @@ def fetch_volume_stocks() -> list[dict]:
                 name = a.get_text(strip=True)
                 close_raw = tds[2].get_text(strip=True).replace(",", "")
                 rate_raw = tds[4].get_text(strip=True).replace("+", "").replace("%", "").replace(",", "")
-                amount_raw = tds[5].get_text(strip=True).replace(",", "") if len(tds) > 5 else "0"
+                # tds[5]=거래량(주), tds[6]=거래대금(백만원 단위) - 예전엔 tds[5]를
+                # tradeAmount로 잘못 읽어서 실제로는 "거래량 상위"를 "거래대금 상위"로
+                # 표시하고 있었다(2026-08-08 발견 - 회장님이 순매수 금액 이상함을
+                # 지적해 조사하다가, 이 페이지가 기본적으로 거래량순 정렬이라 저가
+                # 레버리지/인버스 ETF가 항상 상위 10위를 독점하고 있었음을 확인).
+                amount_raw = tds[6].get_text(strip=True).replace(",", "") if len(tds) > 6 else "0"
                 # 전일 대비 가격(전일비): <em class="bu_pup|bu_pdn|bu_p2">의 부호 + <span> 숫자
                 price_change = 0
                 em = tds[3].select_one("em")
@@ -1005,7 +1010,7 @@ def fetch_volume_stocks() -> list[dict]:
                 try:
                     close = int(close_raw)
                     change_pct = float(rate_raw)
-                    trade_amount = int(amount_raw) if amount_raw.isdigit() else 0
+                    trade_amount = int(amount_raw) * 1_000_000 if amount_raw.isdigit() else 0
                 except Exception:
                     continue
                 stocks.append({
@@ -1017,8 +1022,9 @@ def fetch_volume_stocks() -> list[dict]:
                     "priceChange": price_change,
                     "naverUrl": f"https://finance.naver.com/item/main.naver?code={ticker}",
                 })
-                if len(stocks) >= 20:
-                    break
+                # 이 페이지는 거래량순 정렬이라 거래대금 상위가 뒤쪽 행에 있을 수
+                # 있다 - 한 페이지(최대 100행)를 전부 읽은 뒤 거래대금으로 다시
+                # 정렬해서 진짜 상위 10을 뽑는다(20개로 끊으면 놓칠 수 있음).
         except Exception as e:
             print(f"  [거래대금 수집 오류] {e}")
         time.sleep(0.5)
