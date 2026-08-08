@@ -170,9 +170,9 @@ def backfill_date(client, date_str: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        articles, stage = fetch_stock_news_staged(ticker, date_str, max_articles=15)
+        articles, stage = fetch_stock_news_staged(ticker, name, date_str, max_articles=15)
         print(f"     기사 {len(articles)}개 ({stage})")
-        g["news"] = news_to_dicts(articles, date_str)
+        g["news"] = news_to_dicts(articles, date_str, stage=stage)
 
         rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"])
@@ -206,9 +206,9 @@ def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        articles, stage = fetch_stock_news_staged(ticker, week_end, max_articles=15)
+        articles, stage = fetch_stock_news_staged(ticker, name, week_end, max_articles=15)
         print(f"     기사 {len(articles)}개 ({stage})")
-        g["news"] = news_to_dicts(articles, week_end)
+        g["news"] = news_to_dicts(articles, week_end, stage=stage)
 
         rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"], is_weekly=True)

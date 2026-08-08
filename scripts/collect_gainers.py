@@ -510,15 +510,21 @@ def calc_technicals(ohlcv: list[dict], close: int, volume: int) -> dict:
 
 def fetch_article_summary(url: str) -> str:
     try:
-        r = requests.get(url, headers=HEADERS, timeout=8)
-        r.encoding = "euc-kr"
-        # finance.naver.com/item/news_read.naver는 실제 기사를 주지 않고
-        # <SCRIPT>top.location.href='https://n.news.naver.com/...'</SCRIPT> 로만 응답한다.
-        # requests는 이 JS 리다이렉트를 따라가지 않으므로 직접 파싱해서 재요청한다.
-        m = re.search(r"top\.location\.href=['\"]([^'\"]+)['\"]", r.text)
-        if m:
-            r = requests.get(m.group(1), headers=HEADERS, timeout=8)
+        if "n.news.naver.com" in url:
+            # 통합검색(fetch_naver_general_news)에서 오는 링크는 이미 실제 기사
+            # 주소라 리다이렉트가 없고, 이 페이지는 UTF-8이다 - euc-kr을 강제하면 깨진다.
+            r = requests.get(url, headers=HEADERS, timeout=8)
             r.encoding = r.apparent_encoding or "utf-8"
+        else:
+            r = requests.get(url, headers=HEADERS, timeout=8)
+            r.encoding = "euc-kr"
+            # finance.naver.com/item/news_read.naver는 실제 기사를 주지 않고
+            # <SCRIPT>top.location.href='https://n.news.naver.com/...'</SCRIPT> 로만 응답한다.
+            # requests는 이 JS 리다이렉트를 따라가지 않으므로 직접 파싱해서 재요청한다.
+            m = re.search(r"top\.location\.href=['\"]([^'\"]+)['\"]", r.text)
+            if m:
+                r = requests.get(m.group(1), headers=HEADERS, timeout=8)
+                r.encoding = r.apparent_encoding or "utf-8"
         soup = BeautifulSoup(r.text, "html.parser")
         content = soup.select_one("#dic_area, #newsct_article, .newsct_article, #articeBody, .article_body, #content")
         text = content.get_text(" ", strip=True) if content else soup.get_text(" ", strip=True)
@@ -603,28 +609,92 @@ def relative_label(article_date: str, target_date: str) -> str:
     return f"{diff // 30}개월 전"
 
 
-def fetch_stock_news_staged(ticker: str, target_date: str, max_articles: int = 15) -> tuple[list[dict], str]:
+def fetch_naver_general_news(query: str, target_date: str, max_articles: int = 15,
+                             days_before: int = 30, days_after: int = 0) -> list[dict]:
+    """네이버 금융 종목뉴스 탭(fetch_stock_news)에서 못 찾을 때 쓰는 2차 소스 -
+    네이버 통합 뉴스검색(모바일, m.search.naver.com). 2026-08-08 추가(회장님
+    요청 - 크롤링 범위 확대). 종목코드가 아니라 종목명으로 검색하므로 동명
+    기업 기사가 섞일 위험이 있어 반드시 종목뉴스 탭이 비었을 때만 보조로 쓴다.
+
+    ⚠ 개별 기사의 정확한 게시일을 이 검색 결과 화면에서 안정적으로 뽑을
+    방법을 찾지 못했다(모바일 검색도 날짜가 DOM에 노출되지 않음) - 없는
+    사실을 지어내지 않기 위해 기사별 date는 채우지 않고, 호출 쪽에서
+    "검색에 사용한 범위"(예: 1개월 이내)만 표시하게 한다."""
+    target = datetime.strptime(target_date, "%Y-%m-%d").date()
+    date_from = (target - timedelta(days=days_before)).strftime("%Y.%m.%d")
+    date_to = (target + timedelta(days=days_after)).strftime("%Y.%m.%d")
+    articles = []
+    try:
+        r = requests.get(
+            "https://m.search.naver.com/search.naver",
+            params={
+                "where": "m_news", "query": query, "sort": "1",
+                "ds": date_from, "de": date_to,
+                "nso": f"so:r,p:from{date_from.replace('.', '')}to{date_to.replace('.', '')}",
+            },
+            headers=HEADERS, timeout=15,
+        )
+        soup = BeautifulSoup(r.text, "html.parser")
+        seen = set()
+        for a in soup.select('a[href*="n.news.naver.com"], a[href*="news.naver.com"]'):
+            href = a.get("href", "")
+            title = a.get_text(strip=True)
+            if not href or not title or href in seen:
+                continue
+            seen.add(href)
+            summary = fetch_article_summary(href)
+            articles.append({"title": title, "summary": summary, "url": href, "date": None})
+            if len(articles) >= max_articles:
+                break
+    except Exception as e:
+        print(f"    [네이버 통합검색 오류] {query}: {e}")
+    return articles
+
+
+def fetch_stock_news_staged(ticker: str, name: str, target_date: str,
+                            max_articles: int = 15) -> tuple[list[dict], str]:
     """당일 → 과거 1주일 → 과거 2주일 → 과거 1개월 순으로 범위를 넓혀가며 뉴스를
     찾는다(2026-08-08 회장님 요청). 각 단계에서 기사를 찾으면 그 단계에서 멈춘다.
-    반환값의 두 번째 항목은 실제로 기사를 찾은 단계 이름(로그·검증용)."""
+    네이버 종목뉴스 탭에서 1개월까지도 못 찾으면, 2차 소스(네이버 통합
+    뉴스검색, 종목명으로 검색)를 같은 4단계로 한 번 더 시도한다.
+    반환값의 두 번째 항목은 실제로 기사를 찾은 단계 이름(로그·검증용) -
+    "(통합검색)" 접미사가 붙으면 2차 소스에서 찾은 것."""
     stages = [("당일", 0), ("1주일", 7), ("2주일", 14), ("1개월", 30)]
     for stage_name, days_before in stages:
         articles = fetch_stock_news(ticker, target_date, max_articles=max_articles,
                                     days_before=days_before, days_after=0)
         if articles:
             return articles, stage_name
+    for stage_name, days_before in stages:
+        if days_before == 0:
+            continue  # 통합검색은 "당일"만 걸면 결과가 거의 없어 의미가 적어 건너뜀
+        articles = fetch_naver_general_news(name, target_date, max_articles=max_articles,
+                                            days_before=days_before, days_after=0)
+        if articles:
+            return articles, f"{stage_name}(통합검색)"
     return [], "없음"
 
 
-def news_to_dicts(articles: list[dict], target_date: str, limit: int = 5) -> list[dict]:
+def news_to_dicts(articles: list[dict], target_date: str, limit: int = 5,
+                  stage: str | None = None) -> list[dict]:
     """기사 리스트를 저장용 {title, summary, url, date, relativeLabel} 형태로 변환한다.
-    이전에는 date를 저장하지 않아 사이트에서 "며칠 전"을 계산할 방법이 없었다."""
+    이전에는 date를 저장하지 않아 사이트에서 "며칠 전"을 계산할 방법이 없었다.
+
+    stage에 "(통합검색)"이 붙어 있으면(2차 소스, fetch_naver_general_news) 그
+    기사들은 정확한 날짜를 모른다(date=None) - "3일 전"처럼 지어내지 않고,
+    검색에 실제로 쓴 범위를 그대로 라벨로 쓴다(예: "1개월 이내")."""
+    approx_label = f"{stage.replace('(통합검색)', '')} 이내" if stage and "통합검색" in stage else None
     out = []
     for a in articles[:limit]:
-        date = a.get("date", target_date)
+        date = a.get("date")
+        if date:
+            label = relative_label(date, target_date)
+        else:
+            date = None
+            label = approx_label or "날짜 확인 안 됨"
         out.append({
             "title": a["title"], "summary": a["summary"], "url": a["url"],
-            "date": date, "relativeLabel": relative_label(date, target_date),
+            "date": date, "relativeLabel": label,
         })
     return out
 
@@ -983,9 +1053,9 @@ def run_daily(client, date_str: str):
 
         # 뉴스 (당일 → 1주일 → 2주일 → 1개월 순으로 확장 검색)
         print(f"     뉴스 수집 중...")
-        articles, stage = fetch_stock_news_staged(ticker, date_str, max_articles=15)
+        articles, stage = fetch_stock_news_staged(ticker, name, date_str, max_articles=15)
         print(f"     → 기사 {len(articles)}개 ({stage})")
-        g["news"] = news_to_dicts(articles, date_str)
+        g["news"] = news_to_dicts(articles, date_str, stage=stage)
 
         # Groq 분석
         print(f"     Groq 분석 중...")
@@ -1025,9 +1095,9 @@ def run_weekly(client, date_str: str, from_date: str, to_date: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        articles, stage = fetch_stock_news_staged(ticker, to_date, max_articles=15)
+        articles, stage = fetch_stock_news_staged(ticker, name, to_date, max_articles=15)
         print(f"     기사 {len(articles)}개 ({stage})")
-        g["news"] = news_to_dicts(articles, to_date)
+        g["news"] = news_to_dicts(articles, to_date, stage=stage)
 
         rise, chart = analyze_stock(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"], is_weekly=True)

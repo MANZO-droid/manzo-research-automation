@@ -108,9 +108,9 @@ def fix_date(client, date_str: str, analyze_fn):
             ohlcv = [o for o in ohlcv_all if o["date"] <= date_str]
             technicals = calc_technicals(ohlcv, s["close"], s.get("volume", 0))
             financials = fetch_financials(ticker)
-            articles, stage = fetch_stock_news_staged(ticker, date_str, max_articles=15)
+            articles, stage = fetch_stock_news_staged(ticker, s["name"], date_str, max_articles=15)
             print(f"     기사 {len(articles)}개 ({stage})")
-            news = news_to_dicts(articles, date_str)
+            news = news_to_dicts(articles, date_str, stage=stage)
             rise, chart = analyze_fn(client, s["name"], ticker, date_str, s["changePct"], articles,
                                      technicals=technicals)
             rows_to_save.append({

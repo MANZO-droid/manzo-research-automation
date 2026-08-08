@@ -71,8 +71,8 @@ def patch_news(rows: list[dict]):
     targets = [r for r in rows if not r.get("news")]
     print(f"[뉴스] 대상 {len(targets)}행")
     for row in targets:
-        articles, stage = fetch_stock_news_staged(row["ticker"], row["trade_date"], max_articles=15)
-        news = news_to_dicts(articles, row["trade_date"])
+        articles, stage = fetch_stock_news_staged(row["ticker"], row["name"], row["trade_date"], max_articles=15)
+        news = news_to_dicts(articles, row["trade_date"], stage=stage)
         print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개 ({stage})")
         if news:
             supabase_upsert("daily_gainers", [{
@@ -235,11 +235,11 @@ def patch_widenews(rows: list[dict], provider: str):
     targets = [r for r in rows if "뉴스 기사를 수집하지 못했습니다" in (r.get("rise_reason") or "")]
     print(f"[뉴스 없음 - 단계적 확장 재검색(1개월까지)/{provider}] 대상 {len(targets)}행")
     for row in targets:
-        articles, stage = fetch_stock_news_staged(row["ticker"], row["trade_date"], max_articles=15)
+        articles, stage = fetch_stock_news_staged(row["ticker"], row["name"], row["trade_date"], max_articles=15)
         print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개 ({stage})")
         if not articles:
             continue
-        news = news_to_dicts(articles, row["trade_date"])
+        news = news_to_dicts(articles, row["trade_date"], stage=stage)
         prompt = build_analysis_prompt(
             row["name"], row["ticker"], row["trade_date"], float(row["change_pct"] or 0),
             articles, technicals=row.get("technicals"), is_weekly=(row["report_type"] == "weekly"),
