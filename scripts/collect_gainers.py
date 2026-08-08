@@ -586,6 +586,49 @@ def fetch_stock_news(ticker: str, target_date: str, max_articles: int = 15,
     return articles
 
 
+def relative_label(article_date: str, target_date: str) -> str:
+    """기사 날짜가 리포트 날짜(target_date) 기준으로 며칠/몇 주/몇 개월 전인지
+    표시용 문구를 만든다(2026-08-08 회장님 요청 - "당일 기사가 아니면 옆에
+    며칠 전/몇 주 전인지 표기"). 기사가 리포트 날짜보다 미래거나 당일이면
+    "당일"로 취급한다."""
+    a = datetime.strptime(article_date, "%Y-%m-%d").date()
+    t = datetime.strptime(target_date, "%Y-%m-%d").date()
+    diff = (t - a).days
+    if diff <= 0:
+        return "당일"
+    if diff < 7:
+        return f"{diff}일 전"
+    if diff < 30:
+        return f"{diff // 7}주 전"
+    return f"{diff // 30}개월 전"
+
+
+def fetch_stock_news_staged(ticker: str, target_date: str, max_articles: int = 15) -> tuple[list[dict], str]:
+    """당일 → 과거 1주일 → 과거 2주일 → 과거 1개월 순으로 범위를 넓혀가며 뉴스를
+    찾는다(2026-08-08 회장님 요청). 각 단계에서 기사를 찾으면 그 단계에서 멈춘다.
+    반환값의 두 번째 항목은 실제로 기사를 찾은 단계 이름(로그·검증용)."""
+    stages = [("당일", 0), ("1주일", 7), ("2주일", 14), ("1개월", 30)]
+    for stage_name, days_before in stages:
+        articles = fetch_stock_news(ticker, target_date, max_articles=max_articles,
+                                    days_before=days_before, days_after=0)
+        if articles:
+            return articles, stage_name
+    return [], "없음"
+
+
+def news_to_dicts(articles: list[dict], target_date: str, limit: int = 5) -> list[dict]:
+    """기사 리스트를 저장용 {title, summary, url, date, relativeLabel} 형태로 변환한다.
+    이전에는 date를 저장하지 않아 사이트에서 "며칠 전"을 계산할 방법이 없었다."""
+    out = []
+    for a in articles[:limit]:
+        date = a.get("date", target_date)
+        out.append({
+            "title": a["title"], "summary": a["summary"], "url": a["url"],
+            "date": date, "relativeLabel": relative_label(date, target_date),
+        })
+    return out
+
+
 # ─── Groq 분석 (Llama 3.3 70B, 무료 API) ───────────────────────────────────────
 
 class GroqQuotaExhausted(Exception):
@@ -938,11 +981,11 @@ def run_daily(client, date_str: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        # 뉴스
+        # 뉴스 (당일 → 1주일 → 2주일 → 1개월 순으로 확장 검색)
         print(f"     뉴스 수집 중...")
-        articles = fetch_stock_news(ticker, date_str, max_articles=15)
-        print(f"     → 기사 {len(articles)}개")
-        g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        articles, stage = fetch_stock_news_staged(ticker, date_str, max_articles=15)
+        print(f"     → 기사 {len(articles)}개 ({stage})")
+        g["news"] = news_to_dicts(articles, date_str)
 
         # Groq 분석
         print(f"     Groq 분석 중...")
@@ -982,9 +1025,9 @@ def run_weekly(client, date_str: str, from_date: str, to_date: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        articles = fetch_stock_news(ticker, to_date, max_articles=15)
-        print(f"     기사 {len(articles)}개")
-        g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        articles, stage = fetch_stock_news_staged(ticker, to_date, max_articles=15)
+        print(f"     기사 {len(articles)}개 ({stage})")
+        g["news"] = news_to_dicts(articles, to_date)
 
         rise, chart = analyze_stock(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"], is_weekly=True)

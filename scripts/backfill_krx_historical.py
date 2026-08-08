@@ -32,6 +32,7 @@ import google.generativeai as genai
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, fetch_stock_news,
+    fetch_stock_news_staged, news_to_dicts,
     fetch_financials, build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
     save_raw_candidates, save_to_supabase, get_weekly_top10, KST, has_language_issue,
 )
@@ -169,9 +170,9 @@ def backfill_date(client, date_str: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        articles = fetch_stock_news(ticker, date_str, max_articles=15)
-        print(f"     기사 {len(articles)}개")
-        g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        articles, stage = fetch_stock_news_staged(ticker, date_str, max_articles=15)
+        print(f"     기사 {len(articles)}개 ({stage})")
+        g["news"] = news_to_dicts(articles, date_str)
 
         rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"])
@@ -205,9 +206,9 @@ def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
         g["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={ticker}"
         time.sleep(0.3)
 
-        articles = fetch_stock_news(ticker, week_end, max_articles=15)
-        print(f"     기사 {len(articles)}개")
-        g["news"] = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        articles, stage = fetch_stock_news_staged(ticker, week_end, max_articles=15)
+        print(f"     기사 {len(articles)}개 ({stage})")
+        g["news"] = news_to_dicts(articles, week_end)
 
         rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"], is_weekly=True)

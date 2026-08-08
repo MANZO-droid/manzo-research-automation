@@ -31,7 +31,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
-    load_env, fetch_financials, fetch_stock_news, supabase_upsert,
+    load_env, fetch_financials, fetch_stock_news_staged, news_to_dicts, supabase_upsert,
     build_analysis_prompt, parse_analysis_response,
     build_chart_only_prompt, parse_chart_only_response,
 )
@@ -71,9 +71,9 @@ def patch_news(rows: list[dict]):
     targets = [r for r in rows if not r.get("news")]
     print(f"[뉴스] 대상 {len(targets)}행")
     for row in targets:
-        articles = fetch_stock_news(row["ticker"], row["trade_date"], max_articles=15)
-        news = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
-        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개")
+        articles, stage = fetch_stock_news_staged(row["ticker"], row["trade_date"], max_articles=15)
+        news = news_to_dicts(articles, row["trade_date"])
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개 ({stage})")
         if news:
             supabase_upsert("daily_gainers", [{
                 "trade_date": row["trade_date"], "rank": row["rank"], "report_type": row["report_type"],
@@ -218,9 +218,9 @@ def patch_short(rows: list[dict], provider: str):
 
 
 def patch_widenews(rows: list[dict], provider: str):
-    """"뉴스를 수집하지 못했습니다" 상태인 행을 대상으로, 그 날짜부터 앞선
-    1주일(days_before=7, days_after=0)까지 넓혀서 다시 검색한다(2026-08-06,
-    회장님 요청). 기사를 찾으면 news 갱신 + riseReason/chartAnalysis도
+    """"뉴스를 수집하지 못했습니다" 상태인 행을 대상으로 당일→1주일→2주일→1개월
+    순으로 넓혀가며 재검색한다(2026-08-08, 회장님 요청으로 1개월까지 확장).
+    기사를 찾으면 news(날짜·상대 라벨 포함) 갱신 + riseReason/chartAnalysis도
     그 기사를 근거로 재생성. 그래도 못 찾으면 손대지 않는다(지어내지 않음)."""
     if provider == "gemini":
         import google.generativeai as genai
@@ -233,14 +233,13 @@ def patch_widenews(rows: list[dict], provider: str):
         call = lambda prompt: analyze_with_retry_groq(client, prompt)  # noqa: E731
 
     targets = [r for r in rows if "뉴스 기사를 수집하지 못했습니다" in (r.get("rise_reason") or "")]
-    print(f"[뉴스 없음 - 1주일 확장 재검색/{provider}] 대상 {len(targets)}행")
+    print(f"[뉴스 없음 - 단계적 확장 재검색(1개월까지)/{provider}] 대상 {len(targets)}행")
     for row in targets:
-        articles = fetch_stock_news(row["ticker"], row["trade_date"], max_articles=15,
-                                    days_before=7, days_after=0)
-        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개")
+        articles, stage = fetch_stock_news_staged(row["ticker"], row["trade_date"], max_articles=15)
+        print(f"  {row['trade_date']} #{row['rank']} {row['name']} ({row['ticker']}) -> 기사 {len(articles)}개 ({stage})")
         if not articles:
             continue
-        news = [{"title": a["title"], "summary": a["summary"], "url": a["url"]} for a in articles[:5]]
+        news = news_to_dicts(articles, row["trade_date"])
         prompt = build_analysis_prompt(
             row["name"], row["ticker"], row["trade_date"], float(row["change_pct"] or 0),
             articles, technicals=row.get("technicals"), is_weekly=(row["report_type"] == "weekly"),
