@@ -32,7 +32,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
-    load_env, classify_excluded, fetch_ohlcv, calc_technicals,
+    load_env, classify_excluded, fetch_ohlcv, calc_technicals, calc_ma_lines,
     fetch_stock_news_staged, news_to_dicts,
     fetch_financials, supabase_upsert, KST, analyze_stock, GroqQuotaExhausted,
 )
@@ -104,9 +104,10 @@ def fix_date(client, date_str: str, analyze_fn):
         else:
             # 신규 진입 - 전부 새로 채운다
             print(f"\n  [신규] #{s['rank']} {s['name']} ({ticker}) +{s['changePct']:.2f}%")
-            ohlcv_all = fetch_ohlcv(ticker, count=120)
+            ohlcv_all = fetch_ohlcv(ticker, count=200)
             ohlcv = [o for o in ohlcv_all if o["date"] <= date_str]
             technicals = calc_technicals(ohlcv, s["close"], s.get("volume", 0))
+            technicals["maLines"] = calc_ma_lines(ohlcv, window=60)
             financials = fetch_financials(ticker)
             articles, stage = fetch_stock_news_staged(ticker, s["name"], date_str, max_articles=15)
             print(f"     기사 {len(articles)}개 ({stage})")

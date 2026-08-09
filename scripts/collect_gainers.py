@@ -455,6 +455,28 @@ def calc_ma(closes: list[float], period: int) -> float | None:
     return round(sum(closes[-period:]) / period, 0)
 
 
+def calc_ma_lines(ohlcv_full: list[dict], window: int = 60) -> dict:
+    """차트에 그릴 이동평균선 '시계열'을 계산한다(2026-08-08, 회장님 요청 -
+    "차트 그림에 5/20/60/120일선을 같이 넣어줄 수 있어?"). calc_technicals의
+    ma5/ma20/ma60/ma120은 최신 시점 값 1개뿐이라 선을 그릴 수 없어서 별도로
+    분리 - 화면에 보여줄 최근 `window`일 각각에 대해 그 시점 기준 이동평균을
+    구한다. ma120은 화면 첫 날짜 기준으로도 120일 이전 데이터가 있어야 끊기지
+    않으므로, 호출하는 쪽에서 ohlcv_full을 window+120일 이상 넉넉히 넘겨야 한다
+    (신규상장 등으로 데이터가 부족하면 해당 구간은 null로 남는다 - 값을
+    지어내지 않음)."""
+    closes = [c["close"] for c in ohlcv_full]
+    n = len(closes)
+    start = max(0, n - window)
+    result = {"ma5": [], "ma20": [], "ma60": [], "ma120": []}
+    for i in range(start, n):
+        window_closes = closes[: i + 1]
+        result["ma5"].append(calc_ma(window_closes, 5))
+        result["ma20"].append(calc_ma(window_closes, 20))
+        result["ma60"].append(calc_ma(window_closes, 60))
+        result["ma120"].append(calc_ma(window_closes, 120))
+    return result
+
+
 def calc_disparity(close: int, ma20: float | None) -> float | None:
     """이격도: 현재가가 20일 이동평균선 대비 몇 % 위/아래에 있는지(2026-08-08
     추세 판정 강화 - 정배열/역배열은 방향만 알려주고 '단기 과열/과매도'는
@@ -1151,10 +1173,12 @@ def run_daily(client, date_str: str):
         name, ticker = g["name"], g["ticker"]
         print(f"\n  [{g['rank']}] {name} ({ticker}) +{g['changePct']:.2f}%")
 
-        # OHLCV
-        ohlcv = fetch_ohlcv(ticker, count=120)
+        # OHLCV (200일 수집 - 최근 60일 캔들 저장 + 그 60일 전체 구간에서
+        # ma120선이 끊기지 않게 하려면 앞쪽 여유분 120일 이상이 더 필요함)
+        ohlcv = fetch_ohlcv(ticker, count=200)
         g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv  # 최근 60일만 저장
         g["technicals"] = calc_technicals(ohlcv, g["close"], g.get("volume", 0))
+        g["technicals"]["maLines"] = calc_ma_lines(ohlcv, window=60)
         g["w52High"] = g["technicals"]["w52High"]
         g["w52Low"] = g["technicals"]["w52Low"]
         g["financials"] = fetch_financials(ticker)
@@ -1196,9 +1220,10 @@ def run_weekly(client, date_str: str, from_date: str, to_date: str):
     for g in gainers:
         name, ticker = g["name"], g["ticker"]
         print(f"\n  [{g['rank']}] {name} ({ticker}) 주간 +{g['changePct']:.2f}%")
-        ohlcv = fetch_ohlcv(ticker, count=120)
+        ohlcv = fetch_ohlcv(ticker, count=200)
         g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv
         g["technicals"] = calc_technicals(ohlcv, g["close"], g.get("volume", 0))
+        g["technicals"]["maLines"] = calc_ma_lines(ohlcv, window=60)
         g["w52High"] = g["technicals"]["w52High"]
         g["w52Low"] = g["technicals"]["w52Low"]
         g["financials"] = fetch_financials(ticker)
