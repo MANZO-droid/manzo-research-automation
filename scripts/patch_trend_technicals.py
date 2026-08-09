@@ -31,7 +31,7 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
-    load_env, fetch_ohlcv, calc_technicals, build_chart_only_prompt,
+    load_env, fetch_ohlcv, calc_technicals, calc_ma_lines, build_chart_only_prompt,
     parse_chart_only_response, KST,
 )
 from patch_gainer_fields import analyze_with_retry_gemini, analyze_with_retry_groq  # noqa: E402
@@ -104,7 +104,7 @@ def main():
         ticker, name = row["ticker"], row["name"]
         trade_date = row["trade_date"]
         close = (row.get("technicals") or {}).get("current")
-        ohlcv_all = fetch_ohlcv(ticker, count=120)
+        ohlcv_all = fetch_ohlcv(ticker, count=200)
         ohlcv = [o for o in ohlcv_all if o["date"] <= trade_date]
         if not ohlcv:
             print(f"  [건너뜀] {trade_date} #{row['rank']} {name}({ticker}) - OHLCV 없음")
@@ -113,6 +113,7 @@ def main():
         close = close or ohlcv[-1]["close"]
         volume = ohlcv[-1].get("volume", 0)
         new_technicals = calc_technicals(ohlcv, close, volume)
+        new_technicals["maLines"] = calc_ma_lines(ohlcv, window=60)
 
         prompt = build_chart_only_prompt(
             name, ticker, trade_date, float(row["change_pct"] or 0),
