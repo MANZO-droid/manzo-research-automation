@@ -1,8 +1,8 @@
 # 업무자동화 학습 공간 — 만조리서치 Top10 종목 분석 자동화
 
-이 저장소(`E:\AI 스터디\리서치자동화\`)는 만조리서치 사이트에 들어갈 데이터를 만들어내는 파이프라인이자, "AI 업무자동화" 강의의 개인 실습 공간입니다. **독립된 git 저장소**이며, 사이트 자체는 형제 폴더 `E:\AI 스터디\만조그룹 2차\`(GitHub `MANZO-droid/manzo-site`)의 별도 저장소에 있습니다.
+이 저장소(`E:\AI 스터디\리서치자동화\`)는 만조리서치 사이트에 들어갈 데이터를 만들어내는 파이프라인이자, "AI 업무자동화" 강의의 개인 실습 공간입니다. **독립된 git 저장소**이며, 사이트 자체는 형제 폴더 `E:\AI 스터디\만조인베스트 웹페이지 관리\`(GitHub `MANZO-droid/manzo-site`)의 별도 저장소에 있습니다.
 
-이 저장소는 결과물을 파일로 갖지 않습니다 — GitHub Actions가 실행될 때 Supabase(daily_gainers·volume_stocks·market_scope_reports 테이블)에 직접 저장합니다(2026-08-01부로 사이트 저장소에 JSON을 커밋하던 방식 폐기, 자세한 내용은 [CLAUDE.md](CLAUDE.md) 참고).
+이 저장소는 결과물을 파일로 갖지 않습니다 — GitHub Actions가 실행될 때 Supabase(daily_gainers·volume_stocks·market_scope_reports 테이블)에 직접 저장합니다(2026-08-01부로 사이트 저장소에 JSON을 커밋하던 방식 폐기, 자세한 내용은 [CLAUDE.md](CLAUDE.md) 참고). **2026-08-02부로 세 테이블 모두 이 저장소만 씁니다** — 사이트 쪽에 남아있던 자체 쓰기 코드(키움 API 직접 호출)는 중복 요인이라 삭제했습니다.
 
 **아래 상대 경로는 모두 이 저장소 안 기준입니다.**
 
@@ -19,7 +19,7 @@ GitHub Actions(`.github/workflows/gainers-daily.yml`)가 매일 07:00 UTC(=16:00
 `design/automation.yaml`의 `process` 8단계(발행 여부 판단 → Top10 선정 → 거래대금 상위 선정 → 기술적 지표 계산 → 뉴스 수집 → 상승 이유/차트 분석 → 결과 저장 → 게시) — 실제로는 `scripts/collect_gainers.py`가 담당합니다.
 
 ## 결과
-Supabase 프로젝트(사이트 저장소 `.env.local`의 `SUPABASE_URL`과 동일)의 `daily_gainers`·`volume_stocks`·`market_scope_reports` 테이블. 사이트(`../만조그룹 2차/`)의 `api/top-gainers.js`·`api/market-scope.js`가 이 테이블을 읽어 `index.html`에 그립니다. 스키마는 [db/](db/) 참고. 출력 규격은 [reference/policies/manzo-output-contract.md](reference/policies/manzo-output-contract.md) 참고.
+Supabase 프로젝트(사이트 저장소 `.env.local`의 `SUPABASE_URL`과 동일)의 `daily_gainers`·`volume_stocks`·`market_scope_reports` 테이블. 사이트(`../만조인베스트 웹페이지 관리/`)의 `api/top-gainers.js`·`api/market-scope.js`가 이 테이블을 읽어 `index.html`에 그립니다. 스키마는 [db/](db/) 참고. 출력 규격은 [reference/policies/manzo-output-contract.md](reference/policies/manzo-output-contract.md) 참고.
 
 ## 사람이 확인할 곳
 최종 게시(배포) 이후 사후 검토 — 상승 이유 분석의 사실관계, 분량, 종목 필터링 누락·오류. Supabase upsert가 스크립트 안에서 조건 없이 자동 실행되므로 사전에 막는 지점은 현재 없습니다(확인 필요).

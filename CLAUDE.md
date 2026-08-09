@@ -4,12 +4,13 @@
 
 ## 두 저장소 구조 (2026-08-01 분리)
 
-원래 사이트 저장소(`만조그룹 2차` = GitHub `manzo-site`) 안에 `리서치자동화/` 하위 폴더로 있었으나, 완전히 분리된 **독립 git 저장소**가 됐습니다. 형제 폴더 `E:\AI 스터디\만조그룹 2차\`가 사이트 저장소입니다.
+원래 사이트 저장소(`만조인베스트 웹페이지 관리` = GitHub `manzo-site`) 안에 `리서치자동화/` 하위 폴더로 있었으나, 완전히 분리된 **독립 git 저장소**가 됐습니다. 형제 폴더 `E:\AI 스터디\만조인베스트 웹페이지 관리\`가 사이트 저장소입니다.
 
 - **2026-08-01(2차) — 결과물을 사이트 저장소에 JSON으로 커밋하던 방식을 폐기하고 Supabase로 직접 저장합니다.** `scripts/collect_gainers.py`는 `daily_gainers`·`volume_stocks` 테이블에, `scripts/collect_market_scope.py`는 `market_scope_reports` 테이블에 REST API(`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`)로 upsert합니다. 더 이상 `stock-analysis-data.json`·`market-scope-data.json`을 쓰지 않고, 사이트 저장소를 체크아웃·커밋·푸시할 필요도 없습니다(`SITE_REPO_PAT` 시크릿도 더 이상 필요 없음).
 - 이 저장소는 여전히 사이트 저장소를 직접 갖고 있지 않습니다 — `db/*.sql`은 Supabase 대시보드 SQL Editor에 사람이 직접 실행하는 스키마 마이그레이션 파일입니다(스크립트가 DDL을 실행하지 않음).
 - 로컬 실행 시 `.env.local`에 `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`가 필요합니다(사이트 저장소 `.env.local`과 같은 프로젝트 값).
-- 사이트(`../만조그룹 2차/index.html`, `api/top-gainers.js`, `api/market-scope.js`)는 이 Supabase 테이블을 읽기 전용(anon key)으로 조회해 렌더링합니다. **원칙적으로 사이트 코드는 건드리지 않지만, "하드코딩 제거"처럼 이 저장소의 저장 방식 변경이 사이트의 읽기 코드에도 영향을 주는 경우는 예외**입니다(2026-08-01 Supabase 전환 때 `index.html`·`api/top-gainers.js`·`api/market-scope.js`·`api/cron-update-gainers.js`를 함께 수정함).
+- 사이트(`../만조인베스트 웹페이지 관리/index.html`, `api/top-gainers.js`, `api/market-scope.js`)는 이 Supabase 테이블을 읽기 전용(anon key)으로 조회해 렌더링합니다. **원칙적으로 사이트 코드는 건드리지 않지만, "하드코딩 제거"처럼 이 저장소의 저장 방식 변경이 사이트의 읽기 코드에도 영향을 주는 경우는 예외**입니다(2026-08-01 Supabase 전환 때 `index.html`·`api/top-gainers.js`·`api/market-scope.js`를 함께 수정함).
+- **2026-08-02**: 사이트 쪽에 남아있던 자체 Supabase 쓰기 코드(`api/cron-update-gainers.js`, 키움 API 직접 호출로 `daily_gainers`에 중복으로 쓰던 것)를 완전히 삭제했습니다. 이제 세 테이블 모두 이 저장소(`collect_gainers.py`/`collect_market_scope.py`)만 씁니다 — 사이트는 어떤 경우에도 Supabase에 쓰지 않습니다.
 
 ## 작업 원칙
 
