@@ -33,7 +33,7 @@ on:
         description: "관리종목 등 잘못 포함된 종목을 교정할 날짜 목록(쉼표 구분) - 이걸 채우면 위 항목 전부 무시됨"
         required: false
       patch_mode:
-        description: "financials|news|analysis|both|language - 이걸 채우면 위 항목 전부 무시됨(fix_dates보다 우선순위 낮음). language는 fix_language_issues.py 실행"
+        description: "financials|news|analysis|both|language|trend - 이걸 채우면 위 항목 전부 무시됨(fix_dates보다 우선순위 낮음). language는 fix_language_issues.py, trend는 patch_trend_technicals.py 실행(dates 입력 필요)"
         required: false
       provider:
         description: "gemini 또는 groq (fix_dates/patch_mode=analysis에서 사용)"
@@ -66,6 +66,8 @@ jobs:
             python -u scripts/fix_excluded_gainers.py --dates "${{ inputs.fix_dates }}" --provider "${{ inputs.provider }}"
           elif [ "${{ inputs.patch_mode }}" = "language" ]; then
             python -u scripts/fix_language_issues.py --provider "${{ inputs.provider }}"
+          elif [ "${{ inputs.patch_mode }}" = "trend" ]; then
+            python -u scripts/patch_trend_technicals.py --dates "${{ inputs.dates }}" --provider "${{ inputs.provider }}"
           elif [ -n "${{ inputs.patch_mode }}" ]; then
             python -u scripts/patch_gainer_fields.py --mode "${{ inputs.patch_mode }}" --provider "${{ inputs.provider }}"
           else
