@@ -1,60 +1,83 @@
 # -*- coding: utf-8 -*-
 """
-거래대금(volumeStocks) 데이터 공백 감사 스크립트
+거래대금(volume_stocks) 데이터 공백 감사 스크립트
 
 무엇을 하나:
-  stock-analysis-data.json의 dates 맵을 훑어, "리포트 항목은 존재하지만
-  volumeStocks가 비어있거나 없는 날짜"를 찾아 출력한다.
+  Supabase의 daily_gainers 표에 있는 날짜 중, volume_stocks 표에는 없는
+  날짜를 찾아 출력한다.
   (거래대금 상위 10위 표가 특정 날짜에 "데이터가 없습니다"로 나오는 원인 진단용)
 
-이 스크립트는 실제 데이터를 채우지 못한다 - Kiwoom/네이버 실시간 수집에는
-네트워크 접근과 (필요 시) API 키가 있는 환경에서 실행해야 하는
-scripts/collect_gainers.py / scripts/enrich_gainers.py의 재실행이 필요하다.
-이 스크립트는 어떤 날짜를 백필해야 하는지 사람이 빠르게 파악하도록 목록만
-뽑아준다.
+2026-08-02: 사이트 저장소의 stock-analysis-data.json이 삭제되고 두 표 모두
+Supabase가 유일한 원천이 되면서, 이 스크립트도 파일 대신 Supabase를 직접
+조회하도록 다시 작성했다.
+
+이 스크립트는 실제 데이터를 채우지 못한다 - 빠진 날짜를 다시 채우려면
+scripts/collect_gainers.py를 그 날짜로 재실행해야 한다. 이 스크립트는 어떤
+날짜를 백필해야 하는지 사람이 빠르게 파악하도록 목록만 뽑아준다.
+
+필요 환경변수 (.env.local):
+  SUPABASE_URL
+  SUPABASE_SERVICE_ROLE_KEY
 
 사용법:
   python scripts/audit_volume_gaps.py
 """
-import json
 import os
 import sys
 
+import requests
+
 sys.stdout.reconfigure(encoding="utf-8")
 
-# scripts/ 에서 한 단계 위가 이 저장소(리서치자동화)의 루트다.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SITE_ROOT = os.environ.get("SITE_REPO_PATH") or os.path.join(os.path.dirname(ROOT), "만조그룹 2차")
-JSON_PATH = os.path.join(SITE_ROOT, "stock-analysis-data.json")
 
 
-def find_volume_gaps(data: dict) -> list[str]:
-    """volumeStocks가 없거나 빈 배열인 날짜 목록(오름차순)을 반환."""
-    dates = data.get("dates", {})
-    gaps = []
-    for d in sorted(dates.keys()):
-        entry = dates[d] or {}
-        vol = entry.get("volumeStocks")
-        if not vol:  # None, [] 모두 포함
-            gaps.append(d)
-    return gaps
+def load_env():
+    for fname in (".env.local", ".env"):
+        path = os.path.join(ROOT, fname)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+
+
+def fetch_distinct_dates(url: str, key: str, table: str, datecol: str) -> set[str]:
+    r = requests.get(
+        f"{url}/rest/v1/{table}?select={datecol}",
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        timeout=30,
+    )
+    if not r.ok:
+        raise RuntimeError(f"Supabase {table} 조회 실패 {r.status_code}: {r.text}")
+    return {row[datecol] for row in r.json()}
 
 
 def main():
-    with open(JSON_PATH, encoding="utf-8") as f:
-        data = json.load(f)
+    load_env()
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        print("[오류] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY가 없습니다. .env.local에 추가해 주세요.")
+        sys.exit(1)
 
-    dates = data.get("dates", {})
-    gaps = find_volume_gaps(data)
+    gainers_dates = fetch_distinct_dates(url, key, "daily_gainers", "trade_date")
+    volume_dates = fetch_distinct_dates(url, key, "volume_stocks", "trade_date")
 
-    print(f"stock-analysis-data.json 내 날짜 수: {len(dates)}개")
-    print(f"latestDate(파일 기준): {data.get('latestDate')}")
+    gaps = sorted(gainers_dates - volume_dates)
+
+    print(f"daily_gainers 내 날짜 수: {len(gainers_dates)}개")
+    print(f"volume_stocks 내 날짜 수: {len(volume_dates)}개")
     print()
 
     if not gaps:
-        print("volumeStocks가 비어있는 날짜: 없음 (현재 파일에 있는 모든 날짜는 거래대금 데이터 보유)")
+        print("거래대금(volume_stocks) 데이터가 비어있는 날짜: 없음 (daily_gainers의 모든 날짜가 거래대금 데이터도 보유)")
     else:
-        print(f"volumeStocks가 비어있거나 없는 날짜 ({len(gaps)}개):")
+        print(f"거래대금 데이터가 없는 날짜 ({len(gaps)}개):")
         for d in gaps:
             print(f"  - {d}")
 

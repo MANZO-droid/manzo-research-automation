@@ -9,8 +9,12 @@
 이미 Supabase에 있는 (trade_date, rank, report_type)/(trade_date, rank)/(report_date)는
 upsert이므로 덮어써도 안전하다(트랜잭션 안전, 재실행 가능).
 
-사용법:
-  python scripts/backfill_json_to_supabase.py --site-repo "../만조그룹 2차"
+**2026-08-02: 이 백필은 이미 완료됐고, 대상 JSON 파일 두 개도 그 뒤 삭제됐다**
+(Supabase가 이미 더 넓은 날짜 범위를 갖고 있는 걸 대조 확인한 뒤 삭제). 다시
+실행할 필요는 없지만, 참고용으로 남겨둔다.
+
+사용법(과거 기록, 재실행 불필요):
+  python scripts/backfill_json_to_supabase.py --site-repo "../만조인베스트 웹페이지 관리"
 
 필요 환경변수 (.env.local): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 """
@@ -136,7 +140,7 @@ def backfill_market_scope(site_repo: str):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--site-repo", default=os.path.join(os.path.dirname(ROOT), "만조그룹 2차"))
+    ap.add_argument("--site-repo", default=os.path.join(os.path.dirname(ROOT), "만조인베스트 웹페이지 관리"))
     args = ap.parse_args()
 
     load_env()
