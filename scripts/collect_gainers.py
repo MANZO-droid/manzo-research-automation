@@ -455,6 +455,82 @@ def calc_ma(closes: list[float], period: int) -> float | None:
     return round(sum(closes[-period:]) / period, 0)
 
 
+def calc_disparity(close: int, ma20: float | None) -> float | None:
+    """이격도: 현재가가 20일 이동평균선 대비 몇 % 위/아래에 있는지(2026-08-08
+    추세 판정 강화 - 정배열/역배열은 방향만 알려주고 '단기 과열/과매도'는
+    안 알려줘서 보조 지표로 추가). +20% 이상이면 단기 과열, -20% 이하면
+    단기 과매도 구간으로 흔히 해석한다(정식 매매 신호가 아니라 참고용)."""
+    if not ma20:
+        return None
+    return round((close - ma20) / ma20 * 100, 1)
+
+
+def calc_adx(highs: list[float], lows: list[float], closes: list[float],
+             period: int = 14) -> float | None:
+    """ADX(Average Directional Index, Wilder 방식): 추세의 '강도'를 0~100으로
+    나타낸다(방향은 안 알려줌 - calc_trend의 방향 판정과 상호보완).
+    통상 25 이상이면 뚜렷한 추세, 20 미만이면 추세 약함(횡보)으로 해석한다.
+    14일 Wilder 평활을 쓰므로 최소 2*period+1개 이상의 일봉이 있어야
+    계산되고, 부족하면 None을 반환한다(백필 초기·신규상장 종목 등)."""
+    n = len(closes)
+    if n < period * 2 + 1:
+        return None
+
+    trs, plus_dm, minus_dm = [], [], []
+    for i in range(1, n):
+        high, low, prev_close = highs[i], lows[i], closes[i - 1]
+        prev_high, prev_low = highs[i - 1], lows[i - 1]
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        up_move = high - prev_high
+        down_move = prev_low - low
+        plus_dm.append(up_move if up_move > down_move and up_move > 0 else 0)
+        minus_dm.append(down_move if down_move > up_move and down_move > 0 else 0)
+        trs.append(tr)
+
+    def wilder_smooth(values: list[float]) -> list[float]:
+        smoothed = [sum(values[:period])]
+        for v in values[period:]:
+            smoothed.append(smoothed[-1] - smoothed[-1] / period + v)
+        return smoothed
+
+    tr_s = wilder_smooth(trs)
+    plus_dm_s = wilder_smooth(plus_dm)
+    minus_dm_s = wilder_smooth(minus_dm)
+
+    dx_list = []
+    for tr_v, pdm_v, mdm_v in zip(tr_s, plus_dm_s, minus_dm_s):
+        if tr_v == 0:
+            continue
+        plus_di = 100 * pdm_v / tr_v
+        minus_di = 100 * mdm_v / tr_v
+        di_sum = plus_di + minus_di
+        if di_sum == 0:
+            continue
+        dx_list.append(100 * abs(plus_di - minus_di) / di_sum)
+
+    if len(dx_list) < period:
+        return None
+    return round(sum(dx_list[-period:]) / period, 1)
+
+
+def calc_trend(ma5: float | None, ma20: float | None, ma60: float | None,
+                ma120: float | None) -> str:
+    """정배열/역배열 기반 3단계 추세 판정(2026-08-08, 회장님 요청으로 ma5 vs
+    ma20 단순 비교에서 강화). 단기(5)>중기(20)>중장기(60)>장기(120) 이동평균이
+    전부 순서대로 나열되면 "상승추세", 전부 역순이면 "하락추세", 그 외 섞여
+    있으면 "횡보"로 판정한다. ma60/ma120은 상장 초기 종목·백필 기간 제한으로
+    None일 수 있어, 그 경우 확보된 이동평균선만으로 같은 방식(정배열/역배열/
+    횡보)을 판정한다(최소 ma5, ma20은 있어야 하고, 그마저 없으면 "횡보")."""
+    mas = [m for m in (ma5, ma20, ma60, ma120) if m is not None]
+    if len(mas) < 2:
+        return "횡보"
+    if all(mas[i] > mas[i + 1] for i in range(len(mas) - 1)):
+        return "상승추세"
+    if all(mas[i] < mas[i + 1] for i in range(len(mas) - 1)):
+        return "하락추세"
+    return "횡보"
+
+
 def calc_technicals(ohlcv: list[dict], close: int, volume: int) -> dict:
     closes = [c["close"] for c in ohlcv]
     volumes = [c["volume"] for c in ohlcv]
@@ -475,7 +551,9 @@ def calc_technicals(ohlcv: list[dict], close: int, volume: int) -> dict:
     pct_from_high = round((close - w52_high) / w52_high * 100, 1) if w52_high else 0
     pct_from_low = round((close - w52_low) / w52_low * 100, 1) if w52_low else 0
 
-    trend = "상승추세" if ma5 and ma20 and ma5 > ma20 else "하락추세"
+    trend = calc_trend(ma5, ma20, ma60, ma120)
+    disparity = calc_disparity(close, ma20)
+    adx = calc_adx(highs, lows, closes)
 
     # 골든크로스/데드크로스 감지 (최근 3일)
     cross = None
@@ -502,6 +580,8 @@ def calc_technicals(ohlcv: list[dict], close: int, volume: int) -> dict:
         "volAvg20": vol_avg20,
         "volRatio": vol_ratio,
         "trend": trend,
+        "disparity": disparity,
+        "adx": adx,
         "cross": cross,
     }
 
@@ -772,7 +852,9 @@ def build_analysis_prompt(name: str, ticker: str, date_str: str, change_pct: flo
         f"ma5={t.get('ma5')}, ma20={t.get('ma20')}, ma60={t.get('ma60')}, ma120={t.get('ma120')}, "
         f"현재가={t.get('current')}, 52주고가={t.get('w52High')}, 52주저가={t.get('w52Low')}, "
         f"고가대비={t.get('pctFromHigh')}%, 저가대비={t.get('pctFromLow')}%, "
-        f"거래량비율(20일평균 대비)={t.get('volRatio')}, 추세={t.get('trend')}, "
+        f"거래량비율(20일평균 대비)={t.get('volRatio')}, 추세(정배열/역배열 기준)={t.get('trend')}, "
+        f"이격도(20일선 대비)={t.get('disparity')}%, ADX(추세강도, 25 이상이면 뚜렷한 추세, "
+        f"20 미만이면 추세 약함)={t.get('adx')}, "
         f"골든/데드크로스 발생 여부={t.get('cross') or '크로스 없음'}"
     )
 
@@ -820,7 +902,9 @@ def build_chart_only_prompt(name: str, ticker: str, date_str: str, change_pct: f
         f"ma5={t.get('ma5')}, ma20={t.get('ma20')}, ma60={t.get('ma60')}, ma120={t.get('ma120')}, "
         f"현재가={t.get('current')}, 52주고가={t.get('w52High')}, 52주저가={t.get('w52Low')}, "
         f"고가대비={t.get('pctFromHigh')}%, 저가대비={t.get('pctFromLow')}%, "
-        f"거래량비율(20일평균 대비)={t.get('volRatio')}, 추세={t.get('trend')}, "
+        f"거래량비율(20일평균 대비)={t.get('volRatio')}, 추세(정배열/역배열 기준)={t.get('trend')}, "
+        f"이격도(20일선 대비)={t.get('disparity')}%, ADX(추세강도, 25 이상이면 뚜렷한 추세, "
+        f"20 미만이면 추세 약함)={t.get('adx')}, "
         f"골든/데드크로스 발생 여부={t.get('cross') or '크로스 없음'}"
     )
     return f"""당신은 한국 주식 전문 애널리스트입니다.
