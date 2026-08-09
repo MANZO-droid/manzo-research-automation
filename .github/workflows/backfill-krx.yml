@@ -7,8 +7,21 @@ name: "과거 데이터 KRX 백필 (수동)"
 # 2026-08-03 추가: fix_dates(관리종목 등 잘못 포함된 종목 교정)와
 # patch_mode(financials/news/analysis 재패치)도 이 워크플로에서 실행 가능.
 # provider로 gemini/groq 중 선택(한쪽 할당량이 소진되면 다른 쪽으로 전환).
+#
+# 2026-08-09 추가: 매일 한국시간 오후 4시(Gemini 무료 할당량 리셋 직후,
+# UTC 07:00) 예약 실행으로 patch_trend_technicals.py의 남은 19개 날짜
+# (추세 기준 소급 반영, AUTOMATION_NOTES.md 참고)를 자동으로 이어서
+# 처리한다. patch_trend_technicals.py가 technicals.trendCriteriaVersion
+# 마커로 이미 끝난 행을 자동으로 건너뛰므로 매일 돌아도 안전하고(다
+# 끝나면 조회만 하고 아무 것도 안 함), --minutes 45로 GH Actions
+# timeout-minutes: 60에 걸리지 않게 시간 예산을 둔다(할당량이 부족한
+# 날은 실패가 쌓이는 대신 minutes 내에서 할 수 있는 만큼만 하고 다음날
+# 이어감). 회장님이 몇 번 확인해서 179행 전부 끝났다 싶으면 이 스케줄은
+# 지워도 된다(그 전엔 남겨둬도 무해함).
 
 on:
+  schedule:
+    - cron: "0 7 * * *"
   workflow_dispatch:
     inputs:
       dates:
@@ -62,7 +75,10 @@ jobs:
           KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
-          if [ -n "${{ inputs.fix_dates }}" ]; then
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python -u scripts/patch_trend_technicals.py --provider groq --minutes 45 --dates \
+              "2026-07-13,2026-07-14,2026-07-15,2026-07-16,2026-07-20,2026-07-21,2026-07-22,2026-07-27,2026-07-28,2026-07-29,2026-07-30,2026-07-31,2026-08-01,2026-08-03,2026-08-04,2026-08-05,2026-08-06,2026-08-07,2026-08-08"
+          elif [ -n "${{ inputs.fix_dates }}" ]; then
             python -u scripts/fix_excluded_gainers.py --dates "${{ inputs.fix_dates }}" --provider "${{ inputs.provider }}"
           elif [ "${{ inputs.patch_mode }}" = "language" ]; then
             python -u scripts/fix_language_issues.py --provider "${{ inputs.provider }}"
