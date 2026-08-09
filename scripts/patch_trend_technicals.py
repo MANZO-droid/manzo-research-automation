@@ -17,15 +17,31 @@ calc_disparity/calc_adx). 새로 생성되는 리포트는 자동으로 이 기�
      뉴스 기반이라 이번 요청과 무관 - 건드리지 않음)
   3) technicals + chart_analysis만 PATCH(다른 필드는 그대로 둠)
 
+2026-08-09 추가: technicals.trendCriteriaVersion 마커 + 시간 예산.
+배경 - Gemini/Groq 무료 할당량이 하루 동안 여러 번 소진돼 270행짜리
+배치를 몇 차례 나눠 돌렸는데, technicals.disparity/adx 키만으로는
+"문구까지 새로 생성됐는지"를 구분할 수 없었다(calc_technicals가 이제
+항상 이 값을 채우므로, maLines만 갱신한 행도 있는 것처럼 보임) - 실행
+로그를 일일이 파싱해서 진행 상황을 추적해야 했다. 이제 문구를 실제로
+새로 생성한 행에만 technicals.trendCriteriaVersion=2를 심어서, 이미
+끝난 행은 --dates에 다시 넣어도 자동으로 건너뛴다(멱등적 재실행 가능 -
+GitHub Actions 예약 실행이 할당량 회복 후 스스로 이어받을 수 있도록).
+--minutes로 시간 예산을 주면 그 안에 처리 가능한 만큼만 하고 멈춘다
+(GH Actions timeout-minutes: 60을 넘기지 않기 위함 - 270행짜리 배치가
+60분에 다 못 끝나고 강제 취소된 적이 있어 추가함).
+
 사용법:
   python scripts/patch_trend_technicals.py --dates 2026-07-23,2026-07-24
   python scripts/patch_trend_technicals.py --dates 2026-07-23 --provider groq
+  python scripts/patch_trend_technicals.py --dates <19개 날짜> --provider groq --minutes 45
 
 필요 환경변수 (.env.local): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
   --provider gemini(기본): GEMINI_API_KEY / --provider groq: GROQ_API_KEY
 """
 import argparse, os, sys, time
 from datetime import datetime
+
+TREND_CRITERIA_VERSION = 2  # calc_trend 정배열/역배열+이격도+ADX 기준
 
 import requests
 
@@ -71,7 +87,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dates", required=True, help="쉼표로 구분된 날짜 목록")
     ap.add_argument("--provider", choices=["gemini", "groq"], default="gemini")
+    ap.add_argument("--minutes", type=float, default=None,
+                     help="이 시간(분) 예산 안에서 처리 가능한 만큼만 하고 멈춤(GH Actions 타임아웃 방지)")
     args = ap.parse_args()
+    deadline = time.monotonic() + args.minutes * 60 if args.minutes else None
 
     load_env()
     required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
@@ -96,11 +115,18 @@ def main():
             return analyze_with_retry_groq(client, prompt)
 
     dates = args.dates.split(",")
-    rows = fetch_rows(dates)
-    print(f"대상 {len(rows)}행")
+    all_rows = fetch_rows(dates)
+    rows = [r for r in all_rows
+            if (r.get("technicals") or {}).get("trendCriteriaVersion") != TREND_CRITERIA_VERSION]
+    skipped_done = len(all_rows) - len(rows)
+    print(f"조회 {len(all_rows)}행 / 이미 완료돼 건너뜀 {skipped_done}행 / 처리 대상 {len(rows)}행")
 
-    ok, fail = 0, 0
+    ok, fail, budget_stopped = 0, 0, 0
     for row in rows:
+        if deadline and time.monotonic() >= deadline:
+            budget_stopped = len(rows) - ok - fail
+            print(f"\n[시간 예산 소진] {args.minutes}분 경과 - 남은 {budget_stopped}행은 다음 실행에서 이어감")
+            break
         ticker, name = row["ticker"], row["name"]
         trade_date = row["trade_date"]
         close = (row.get("technicals") or {}).get("current")
@@ -114,6 +140,7 @@ def main():
         volume = ohlcv[-1].get("volume", 0)
         new_technicals = calc_technicals(ohlcv, close, volume)
         new_technicals["maLines"] = calc_ma_lines(ohlcv, window=60)
+        new_technicals["trendCriteriaVersion"] = TREND_CRITERIA_VERSION
 
         prompt = build_chart_only_prompt(
             name, ticker, trade_date, float(row["change_pct"] or 0),
@@ -133,7 +160,7 @@ def main():
         ok += 1
         time.sleep(1.5)
 
-    print(f"\n완료: 성공 {ok}건 / 실패 {fail}건")
+    print(f"\n완료: 성공 {ok}건 / 실패 {fail}건 / 시간 예산으로 이월 {budget_stopped}건")
 
 
 if __name__ == "__main__":
