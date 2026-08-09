@@ -589,3 +589,35 @@ close/changePct/tradeAmount/naverUrl`만 옮기고, `investors`(개인/기관/�
      --mode chartonly`로 차트 해설만 기술적 지표 기반으로 채움(7행 - 이
      한 번의 실행으로 다른 날짜는 이미 다 채워져 있어 영향 없었음을 확인).
      언어 오염(`has_language_issue`) 검사도 전부 통과 확인.
+
+## 2026-08-08 (이어서): 추세 판정 강화(정배열/역배열+이격도+ADX) 소급 반영
+
+회장님이 "상승추세/하락추세는 어떻게 판단해?"라고 물어봐서 확인해보니
+ma5>ma20 단순 비교(출처 불명, 관행적 기준)였음 - 회장님 요청으로
+`calc_trend()`(정배열/역배열 3단계) + `calc_disparity()`(20일선 대비
+이격도) + `calc_adx()`(Wilder 14일 추세 강도)로 강화(커밋 `c221deb`,
+`scripts/collect_gainers.py`). 이건 앞으로 새로 생성되는 리포트부터
+자동 적용되는데, 회장님이 "과거 리포트도 이 새 기준으로 적용해보고
+싶다"며 우선 2026-07-23·07-24 두 날짜(daily_gainers 20행)에 시범 적용
+요청.
+
+- **신규**: `scripts/patch_trend_technicals.py` - 지정 날짜의 daily_gainers
+  행마다 그 날짜 기준 OHLCV를 다시 가져와 `calc_technicals()`로
+  technicals를 새 기준(disparity/adx 포함)으로 재계산하고,
+  `build_chart_only_prompt()`로 chartAnalysis만 다시 생성(riseReason은
+  뉴스 기반이라 이번 요청 범위가 아니므로 안 건드림) → technicals·
+  chart_analysis만 PATCH.
+- **실행**: 로컬에서 Gemini로 20행 중 14행 처리 후 무료 할당량(429) 소진으로
+  6행(2026-07-24 #5~#10) 실패. 로컬 `.env.local`엔 `GROQ_API_KEY`가 없어서
+  (GitHub 시크릿에만 있음) 대체 실행 불가 → `backfill-krx.yml`에
+  `patch_mode=trend` 분기를 추가(GROQ_API_KEY로 이 스크립트를 실행)해
+  GH Actions로 나머지 처리(커밋 `1a69ea4`). `gh workflow run` →
+  `gh run watch`로 완료 확인 후, **`gh run view --log`로 실제 실행 로그를
+  다시 읽어 10/10 성공을 재확인**(watch 결과만 믿지 않는 이 프로젝트의
+  기존 원칙 유지).
+- **검증한 것**: 2026-07-23·07-24 daily_gainers 20행 전체를 다시 조회해
+  `technicals`에 `disparity`/`adx` 키가 있고 `chart_analysis`가 비어있지
+  않은지 확인 → 20/20 전부 새 기준 반영됨.
+  **후속 조치 필요(미실행)**: 2026-07-23·07-24 외 나머지 과거 날짜들의
+  chartAnalysis는 아직 옛 기준(ma5 vs ma20)으로 쓰인 문구가 그대로 남아
+  있음 - 전체 소급 반영은 이번엔 요청받지 않아 하지 않음.
