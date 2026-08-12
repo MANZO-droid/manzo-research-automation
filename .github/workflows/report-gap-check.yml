@@ -1,0 +1,38 @@
+name: "리포트 날짜 공백 점검"
+
+# 2026-08-12: 정규 자동화(gainers-daily.yml)가 API 할당량 소진 등으로
+# 어느 날 하루를 통째로 조용히 건너뛰어도(2026-08-10 사고, AUTOMATION_NOTES.md
+# 참고) 아무도 눈치채지 못했던 문제를 막기 위한 감시 워크플로.
+# scripts/check_report_gaps.py가 거래일마다 daily_gainers(report_type='daily')
+# 리포트가 있는지 확인하고, 빠진 날짜가 있으면 비정상 종료(exit 1)한다 -
+# 그러면 이 워크플로 실행이 실패로 표시되고, GitHub이 저장소 소유자에게
+# 기본 이메일 알림을 보낸다(별도 Slack/이메일 연동 없이 기존 인프라만 사용).
+#
+# 매일 18:00 KST(=09:00 UTC, gainers-daily.yml의 16:00 KST 실행보다 2시간
+# 뒤)에 돈다. "오늘"은 스크립트가 알아서 점검 대상에서 뺀다(아직 수집 전일
+# 수 있어서) - 그래서 정확히 몇 시에 돌든 상관없이 안전하다.
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install requests beautifulsoup4 groq
+
+      - name: 날짜 공백 점검
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u scripts/check_report_gaps.py
