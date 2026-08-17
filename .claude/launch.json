@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "manzo-site-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8791", "--directory", "E:/AI 스터디/만조인베스트 웹페이지 관리"],
+      "port": 8791
+    }
+  ]
+}
