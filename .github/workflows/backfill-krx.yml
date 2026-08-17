@@ -27,6 +27,14 @@ name: "과거 데이터 KRX 백필 (수동)"
 # max_tokens 1024→3000(추론 모델이라 추론 토큰을 먼저 씀) - 실제 프롬프트로
 # 파싱까지 확인 완료(커밋 00d8762). 이 예약 실행도 다시 provider=groq로
 # 복구.
+#
+# 2026-08-17(이어서): 상한가 버그 수정(c4dda5c) 후 2026-08-11~08-14를
+# KRX로 재백필해야 하는데, 오늘 이미 Groq/Gemini 둘 다 할당량을 다 써서
+# 실패(각각 1종목 처리 후 429). 회장님이 "내일 오후 4시에 시도해보자"고
+# 하셔서, 이 schedule(매일 UTC 07:00=16시 KST, Gemini 리셋 직후)에 재백필도
+# 같이 태운다 - 실패해도(`|| true`) 뒤의 langfix는 계속 진행됨. 성공하면
+# 그 다음 스케줄 실행부턴 이 재백필 줄을 지워야 함(멱등적이지만 매일 KRX
+# 재조회+LLM 재호출은 낭비).
 
 on:
   schedule:
@@ -85,6 +93,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
+            python -u scripts/backfill_krx_historical.py --dates "2026-08-11,2026-08-12,2026-08-13,2026-08-14" --provider gemini || true
             python -u scripts/patch_language_contamination.py --provider groq --minutes 45
           elif [ -n "${{ inputs.fix_dates }}" ]; then
             python -u scripts/fix_excluded_gainers.py --dates "${{ inputs.fix_dates }}" --provider "${{ inputs.provider }}"
