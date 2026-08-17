@@ -265,12 +265,23 @@ def fetch_weekly_candidates_from_db(week_start: str, week_end: str) -> dict:
 
 
 def get_daily_top10(date_str: str) -> list[dict]:
-    """KOSPI+KOSDAQ 합산 상승률 상위 10종목 반환 (우선주·ETF·ETN 제외)."""
+    """KOSPI+KOSDAQ 합산 상승률 상위 10종목 반환 (우선주·ETF·ETN 제외).
+
+    2026-08-17 버그 수정: 네이버가 상한가(+30%, 가격제한폭 도달)로 "잠긴"
+    종목을 sise_rise.naver(상승률 상위)가 아니라 별도 sise_upper.naver
+    (상한가) 페이지로 분리해서 보여준다는 걸 회장님이 08-11~08-14 데이터가
+    실제 Top10과 다르다고 지적해서 발견했다(정확히 30.00%로 찍힌 종목들이
+    통째로 빠져 있었음 - 상한가는 대개 그날 진짜 1위인데도). sise_upper도
+    같이 모아서 합쳐야 진짜 Top10이 나온다. sise_upper는 KOSPI/KOSDAQ이
+    한 페이지에 같이 나온다(시장별 URL 분리 없음 - 상한가 종목 수가
+    적어서로 추정)."""
     kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=40)
     time.sleep(0.5)
     kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=40)
+    time.sleep(0.5)
+    upper = fetch_top_gainers("https://finance.naver.com/sise/sise_upper.naver", top_n=40)
 
-    all_stocks = kospi + kosdaq
+    all_stocks = kospi + kosdaq + upper
     # 등락률 내림차순 정렬, 중복 ticker 제거, 제외 대상은 건너뛰고 다음 순위로 채움
     seen = set()
     top10 = []
@@ -1178,9 +1189,13 @@ def run_daily(client, date_str: str):
 
     # 원본 후보 저장 (이번 주 토요일 주간 리포트가 나중에 실제 값으로 복리
     # 계산할 수 있게 - get_weekly_top10() 참고). daily 리포트 자체와는 무관.
+    # 2026-08-17: 상한가 종목이 sise_rise에 안 잡히는 버그 수정과 함께,
+    # 주간 리포트 계산용 원본에도 상한가 종목을 포함시킨다(안 그러면
+    # 이 raw_top_candidates를 읽는 주간 복리 계산도 계속 틀리게 됨).
     kospi_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=100)
     kosdaq_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=100)
-    save_raw_candidates(date_str, kospi_raw, kosdaq_raw)
+    upper_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_upper.naver", top_n=100)
+    save_raw_candidates(date_str, kospi_raw + upper_raw, kosdaq_raw)
 
     print("1. 상승률 상위 10종목 수집 중...")
     gainers = get_daily_top10(date_str)
