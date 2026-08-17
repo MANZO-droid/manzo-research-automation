@@ -21,6 +21,12 @@ name: "과거 데이터 KRX 백필 (수동)"
 # 예산)으로 매일 UTC 07:00(한국시간 16시, Gemini 할당량 리셋 직후) 자동
 # 재시도. 다 끝나면(전부 마커됨) 조회만 하고 아무 것도 안 해 무해함 -
 # 회장님이 확인 후 이 schedule 블록을 지워도 됨.
+#
+# 2026-08-17: Groq의 llama-3.3-70b-versatile 모델이 단종된 걸 발견
+# (404 model_not_found). 대체 후보(openai/gpt-oss-120b, qwen/qwen3.6-27b,
+# groq/compound)를 테스트해봤지만 추론 토큰 소모로 응답이 비거나
+# 우리 프롬프트 형식과 안 맞아서, 정리될 때까지 이 예약 실행은
+# provider를 gemini로 고정한다(Groq 관련 미해결 - AUTOMATION_NOTES.md 참고).
 
 on:
   schedule:
@@ -79,7 +85,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            python -u scripts/patch_language_contamination.py --provider groq --minutes 45
+            python -u scripts/patch_language_contamination.py --provider gemini --minutes 45
           elif [ -n "${{ inputs.fix_dates }}" ]; then
             python -u scripts/fix_excluded_gainers.py --dates "${{ inputs.fix_dates }}" --provider "${{ inputs.provider }}"
           elif [ "${{ inputs.patch_mode }}" = "language" ]; then
