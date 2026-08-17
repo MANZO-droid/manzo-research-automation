@@ -110,5 +110,5 @@ jobs:
               echo "입력값이 없습니다. dates/date_from/date_to/weekly_date/fix_dates/patch_mode 중 하나를 지정하세요."
               exit 1
             fi
-            python -u scripts/backfill_krx_historical.py $ARGS
+            python -u scripts/backfill_krx_historical.py $ARGS --provider "${{ inputs.provider }}"
           fi
