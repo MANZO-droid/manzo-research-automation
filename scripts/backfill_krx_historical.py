@@ -140,7 +140,8 @@ def analyze_stock_gemini(model, name: str, ticker: str, date_str: str,
     )
 
 
-def backfill_date(client, date_str: str):
+def backfill_date(client, date_str: str, analyze_fn=None):
+    analyze_fn = analyze_fn or analyze_stock_gemini
     print(f"\n{'='*50}\n[백필] {date_str}\n{'='*50}")
     base_dd = date_str.replace("-", "")
 
@@ -176,7 +177,7 @@ def backfill_date(client, date_str: str):
         print(f"     기사 {len(articles)}개 ({stage})")
         g["news"] = news_to_dicts(articles, date_str, stage=stage)
 
-        rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
+        rise, chart = analyze_fn(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"])
         g["riseReason"] = rise
         g["chartAnalysis"] = chart
@@ -187,7 +188,8 @@ def backfill_date(client, date_str: str):
     save_to_supabase(date_str, entry, "daily", None, None)
 
 
-def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
+def recompute_weekly(client, date_str: str, week_start: str, week_end: str, analyze_fn=None):
+    analyze_fn = analyze_fn or analyze_stock_gemini
     print(f"\n{'='*50}\n[주간 재계산] {date_str} ({week_start} ~ {week_end})\n{'='*50}")
     gainers = get_weekly_top10(week_start, week_end)
     print(f"  주간 gainers {len(gainers)}개")
@@ -213,7 +215,7 @@ def recompute_weekly(client, date_str: str, week_start: str, week_end: str):
         print(f"     기사 {len(articles)}개 ({stage})")
         g["news"] = news_to_dicts(articles, week_end, stage=stage)
 
-        rise, chart = analyze_stock_gemini(client, name, ticker, date_str, g["changePct"], articles,
+        rise, chart = analyze_fn(client, name, ticker, date_str, g["changePct"], articles,
                                     technicals=g["technicals"], is_weekly=True)
         g["riseReason"] = rise
         g["chartAnalysis"] = chart
@@ -232,21 +234,34 @@ def main():
     ap.add_argument("--recompute-weekly", dest="weekly_date", help="주간 리포트를 다시 계산할 발행일(YYYY-MM-DD)")
     ap.add_argument("--week-start")
     ap.add_argument("--week-end")
+    ap.add_argument("--provider", choices=["gemini", "groq"], default="gemini",
+                     help="2026-08-17 추가: Gemini 할당량 소진 시 Groq로 전환 가능")
     args = ap.parse_args()
 
     load_env()
-    for key in ("GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "KRX_OPENAPI_KEY"):
+    required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "KRX_OPENAPI_KEY"]
+    required.append("GEMINI_API_KEY" if args.provider == "gemini" else "GROQ_API_KEY")
+    for key in required:
         if not os.environ.get(key):
             print(f"[오류] {key}가 없습니다. .env.local에 추가해 주세요.")
             sys.exit(1)
 
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    client = genai.GenerativeModel("gemini-2.5-flash")
+    if args.provider == "gemini":
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        client = genai.GenerativeModel("gemini-2.5-flash")
+        analyze_fn = analyze_stock_gemini
+        quota_exc = GeminiQuotaExhausted
+    else:
+        from groq import Groq
+        from collect_gainers import analyze_stock, GroqQuotaExhausted
+        client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+        analyze_fn = analyze_stock
+        quota_exc = GroqQuotaExhausted
 
     if args.weekly_date:
         try:
-            recompute_weekly(client, args.weekly_date, args.week_start, args.week_end)
-        except GeminiQuotaExhausted as e:
+            recompute_weekly(client, args.weekly_date, args.week_start, args.week_end, analyze_fn=analyze_fn)
+        except quota_exc as e:
             print(f"\n[중단] {e}")
             sys.exit(1)
         print("\n완료!")
@@ -271,8 +286,8 @@ def main():
     print(f"백필 대상 날짜({len(dates)}개): {dates}")
     for date_str in dates:
         try:
-            backfill_date(client, date_str)
-        except GeminiQuotaExhausted as e:
+            backfill_date(client, date_str, analyze_fn=analyze_fn)
+        except quota_exc as e:
             print(f"\n[중단] {e} (이미 처리된 날짜까지는 저장됨)")
             sys.exit(1)
 
