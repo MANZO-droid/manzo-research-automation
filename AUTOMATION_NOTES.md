@@ -762,3 +762,72 @@ select count(*) from daily_gainers where (technicals->>'trendCriteriaVersion')::
 통째로 건너뛰면 daily_gainers에서 발견하기 전까진 알아채기 어렵다 -
 날짜 공백을 자동으로 감지·알림하는 장치는 아직 없음(이번엔 회장님이
 직접 화면 보고 발견함).
+
+**(같은 날 이어서) 해결됨**: `scripts/check_report_gaps.py` +
+`.github/workflows/report-gap-check.yml`(매일 18시 KST) 추가 - 거래일마다
+daily_gainers 리포트가 있는지 확인해서 빠지면 워크플로 자체를 실패
+처리(GitHub 기본 알림 메일). GH Actions에서 실제 실행까지 확인 완료.
+당일(daily)만 검사하고 주간(weekly) 공백 감지는 범위 밖(필요시 확장).
+
+## 2026-08-12 (며칠 뒤, 폴더 이동 후): Supabase → 옵시디언 볼트 동기화 + 언어 오염 범위 확대
+
+회장님이 daily_gainers 데이터를 `E:\AI\프로젝트\만조 로드맵\종목 정보\vault\종목`
+(별도 프로젝트 - "상승률 Top30_20260816.xlsx" 기반 옵시디언 지식베이스,
+2021~2026, 종목당 노트 1개, 3426개 파일)에 기록해달라고 요청. 확인해보니
+이 볼트는 카테고리·테마·시총 중심의 완전히 다른 스키마라, 기존 "Top30
+등장 이력" 표는 그대로 두고 뒤에 4개 컬럼(상승이유/차트분석/주요뉴스/
+재무정보, "(만조리서치)" 접미사로 출처 구분)을 추가하는 방식으로 합의.
+
+- **참고**: 이 시점에 로컬 작업 경로가 `E:\AI 스터디\리서치자동화`에서
+  `E:\AI\프로젝트\리서치자동화`로 옮겨져 있었음(회장님이 세션 밖에서
+  재구성한 것으로 추정, git 원격 저장소는 동일해 확인함). 앞으로 로컬
+  스크립트 경로는 이쪽 기준.
+- **동기화 스크립트**(스크래치패드 1회성, 저장소에 커밋 안 함): 날짜가
+  같은 행이 이미 있으면(원본 Excel과 겹치는 경우 많음) 그 행의 새 컬럼만
+  채우고, 없으면 새 행 추가(옛 컬럼은 빈칸). 멱등적. 적용 전
+  `종목_백업_20260812` 폴더로 전체 백업.
+- **결과**: daily_gainers 전체(310행, 2026-07-02~) 반영 - 226개 파일
+  업데이트, 8개 신규 생성(대교·LG생활건강 등), 신규 행 106건 + 기존 행
+  채움 202건. 표 무결성 4,901행 전수 검사로 컬럼 개수 불일치 0건 확인.
+- **부수 발견 → 별도 작업으로 확대**: 옮기는 과정에서 chart_analysis/
+  rise_reason 텍스트에 일본어 말고도 태국어·베트남어·중국어 한자가 섞인
+  행이 310행 중 205행(66%)이나 발견됨(`has_language_issue()`가 히라가나/
+  가타카나만 검사해서 놓치고 있었음). 감지 범위를 확장(태국어·CJK 한자·
+  라틴 확장 A/추가 - 커밋 `70df67e`)하고, `scripts/patch_language_contamination.py`
+  (신규, trend 백필과 동일한 languageCleanVersion 마커 + `--minutes` 시간
+  예산 패턴)로 재생성 착수. 로컬 Gemini로 24/205건 처리 후 할당량 소진.
+- **별도로 발견한 심각한 문제**: Groq로 넘어가려다 `llama-3.3-70b-versatile`
+  모델이 **완전히 단종**된 걸 발견(404 model_not_found - `scripts/list_groq_models.py`
+  신규 진단 도구로 확인). 현재 Groq에서 쓸 수 있는 모델 목록: openai/gpt-oss-120b,
+  openai/gpt-oss-20b, qwen/qwen3.6-27b, groq/compound, groq/compound-mini,
+  allam-2-7b, whisper-large-v3(-turbo), canopylabs/orpheus-*(TTS),
+  meta-llama/llama-prompt-guard-2-*(가드레일 분류기, 채팅 불가). 3개 후보
+  테스트 결과:
+  - `openai/gpt-oss-120b`: max_tokens=150에서 응답 완전히 빔(추론 토큰만
+    소모하고 답을 못 냄으로 추정 - 더 큰 max_tokens로 재시도 필요)
+  - `qwen/qwen3.6-27b`: `<think>...</think>` 추론 블록을 기본 노출하는
+    모델이라 같은 이유로 토큰 예산 안에서 답에 도달 못함
+  - `groq/compound`: 유일하게 정상적인 순수 한국어 최종 답을 냈지만,
+    자체적으로 웹검색을 수행하고 "이전 작업 요약" 같은 서론을 붙이는
+    에이전트형이라 우리 `[riseReason]/[chartAnalysis]` 태그 파싱과 그대로는
+    안 맞음(프롬프트 조정하면 쓸 수 있을 가능성 있음, 미검증)
+  - **결론**: 지금은 무리하게 끼워맞추지 않고, `backfill-krx.yml`의
+    schedule/langfix 둘 다 임시로 `provider=gemini`로 고정했었음.
+
+  **해결됨(같은 날 이어서)**: `openai/gpt-oss-120b`로 교체(커밋 `00d8762`) -
+  이 모델은 reasoning 모델이라 내부 추론이 `message.reasoning`이라는 별도
+  필드로 분리돼 나오고 `message.content`엔 최종 답만 깔끔하게 들어와서
+  기존 `[riseReason]/[chartAnalysis]` 태그 파싱 로직이 그대로 통함(실제
+  프롬프트로 검증 완료 - 714자 정상 생성, 언어 오염 없음). 추론 토큰
+  소모를 감안해 `max_tokens`을 1024→3000으로 올림.
+  `scripts/collect_gainers.py`(`GROQ_MODEL` 상수) / `scripts/patch_gainer_fields.py` /
+  `scripts/fix_language_issues.py` 3곳 전부 반영 - **정규 일일 자동화
+  (gainers-daily.yml)도 이 상수를 그대로 쓰므로 같이 복구됨**(2026-08-15
+  실행까지는 정상이었고, 그 이후~08-17 사이 어느 시점에 Groq가 모델을
+  내려서 08-17 이후 실행이 실패할 뻔했던 것을 사전에 막음). 예약 실행
+  provider도 다시 groq로 복구.
+- **다음에 이어서 할 일**: (1) patch_language_contamination.py 나머지
+  (약 157건, 24건 완료 기준)를 이제 정상화된 Groq로 처리, (2) 처리 끝나면
+  옵시디언 볼트 동기화 스크립트를 재실행해 수정된 텍스트로 갱신(현재
+  볼트엔 오염된 옛 텍스트가 그대로 들어가 있음), (3) `scripts/list_groq_models.py`는
+  진단용으로 남겨둠 - 앞으로 Groq가 또 모델을 내리면 이걸로 먼저 확인.
