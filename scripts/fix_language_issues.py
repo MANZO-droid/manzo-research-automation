@@ -83,7 +83,7 @@ def main():
             for attempt in range(4):
                 try:
                     resp = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile", max_tokens=1024,
+                        model="openai/gpt-oss-120b", max_tokens=3000,  # 2026-08-17: llama-3.3-70b-versatile 단종으로 교체
                         messages=[{"role": "user", "content": prompt}],
                     )
                     text = resp.choices[0].message.content or ""

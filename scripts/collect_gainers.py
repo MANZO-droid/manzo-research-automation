@@ -49,7 +49,14 @@ HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9",
     "Referer": "https://finance.naver.com/",
 }
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
+# 2026-08-17: llama-3.3-70b-versatile이 Groq에서 완전히 단종됨(404
+# model_not_found - 08-15까지는 정상 동작 확인, 그 사이 어느 시점에
+# 단종된 것으로 추정). openai/gpt-oss-120b로 교체 - reasoning 모델이라
+# 응답에 내부 추론 과정이 별도 필드(message.reasoning)로 분리되어 나오고
+# message.content엔 최종 답만 깔끔하게 들어와 기존 파싱 로직이 그대로
+# 통한다(실제 확인함). 단, 추론 토큰을 먼저 소모하므로 max_tokens을
+# 1024→3000으로 올림(안 그러면 추론만 하다 답을 못 내고 끊길 수 있음).
 KST = timezone(timedelta(hours=9))
 
 # ─── Top10 제외 대상 판별 (우선주·ETF·ETN / 관리종목·정리매매는 확인 필요) ────────
@@ -839,7 +846,7 @@ def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
         try:
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
-                max_tokens=1024,
+                max_tokens=3000,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = resp.choices[0].message.content or ""
