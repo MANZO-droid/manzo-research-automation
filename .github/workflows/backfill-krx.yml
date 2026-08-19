@@ -109,8 +109,6 @@ jobs:
             python -u scripts/patch_language_contamination.py --provider "${{ inputs.provider }}" --minutes 55
           elif [ "${{ inputs.patch_mode }}" = "groqmodels" ]; then
             python -u scripts/list_groq_models.py
-          elif [ "${{ inputs.patch_mode }}" = "checkgroqquota" ]; then
-            python -u scripts/_check_groq_quota.py
           elif [ -n "${{ inputs.patch_mode }}" ]; then
             python -u scripts/patch_gainer_fields.py --mode "${{ inputs.patch_mode }}" --provider "${{ inputs.provider }}"
           else
