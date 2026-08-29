@@ -29,7 +29,7 @@
   SUPABASE_SERVICE_ROLE_KEY   RLS를 우회해 daily_gainers/volume_stocks에 쓰기 위한 서버 전용 키
                                (2026-08-01부로 stock-analysis-data.json 하드코딩 대신 이걸 사용)
 """
-import argparse, os, re, sys, time
+import argparse, html, os, re, sys, time
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
@@ -82,37 +82,71 @@ def _get_etf_tickers() -> set:
     return _ETF_TICKER_CACHE
 
 
-_ADMIN_ISSUE_CACHE: dict[str, dict] = {}  # base_dd(YYYYMMDD) -> {ticker: reason}
+_ADMIN_ISSUE_CACHE: dict[str, dict] = {}  # base_dd(YYYYMMDD) -> {name: reason}
+_ADMIN_ISSUE_LIST_CACHE: list[dict] | None = None  # KIND 관리종목 현황 원본 목록(이름 기준)
+
+
+def _fetch_admin_issue_list() -> list[dict]:
+    """KIND(kind.krx.co.kr) 관리종목 현황 조회 화면에서 전체 목록을 가져온다.
+    [{"name": 종목명, "date": "YYYY-MM-DD"(지정일), "reason": 지정사유}, ...].
+
+    2026-08-30 교체 - 기존엔 KRX Open API(stk/ksq_isu_base_info)의 SECT_TP_NM
+    필드로 판별했는데, 회장님이 SHD(001770)가 8/14·18·19 Top10에 관리종목인
+    채로 계속 섞여 있는 걸 지적해 직접 그 API를 호출해보니 SECT_TP_NM이 항상
+    빈 문자열이었다 - 애초에 이 필드가 관리종목 지정 여부를 담고 있지 않음
+    (2026-08-02 도입 이후 한 번도 걸러진 적이 없었다는 뜻). KIND의 관리종목
+    현황 화면(POST adminissue.do, method=searchAdminIssueSub)이 실제 지정
+    현황을 준다는 걸 확인해 이걸로 교체 - 이 화면은 종목코드가 아니라
+    종목명만 주므로 이름으로 대조한다(관리종목은 사실상 다 보통주라 이름
+    충돌 위험은 낮음). 페이지당 100건씩 최대 2페이지(전체 200건 한도)로
+    충분히 커버된다(2026-08-30 기준 전체 167건).
+
+    ⚠ 이 화면은 "현재" 지정된 종목만 보여준다 - 과거 특정 날짜엔 관리종목
+    이었다가 지금은 해제된 종목은 여기 안 잡힌다(기존 방식도 같은 한계였음).
+    """
+    global _ADMIN_ISSUE_LIST_CACHE
+    if _ADMIN_ISSUE_LIST_CACHE is not None:
+        return _ADMIN_ISSUE_LIST_CACHE
+    result: list = []
+    try:
+        for page in (1, 2):
+            data = {
+                "method": "searchAdminIssueSub", "currentPageSize": "100", "pageIndex": str(page),
+                "orderMode": "1", "orderStat": "D", "searchMode": "1", "searchCodeType": "",
+                "searchCorpName": "", "forward": "adminissue_sub", "paxreq": "", "outsvcno": "",
+                "marketType": "", "repIsuSrtCd": "",
+            }
+            r = requests.post(
+                "https://kind.krx.co.kr/investwarn/adminissue.do",
+                data=data, headers=HEADERS, timeout=20,
+            )
+            rows = re.findall(
+                r'<tr>\s*<td class="first">(.*?)</td>\s*<td class="txc">(.*?)</td>\s*<td>(.*?)</td>\s*</tr>',
+                r.text, re.S,
+            )
+            if not rows:
+                break
+            for name_html, date, reason in rows:
+                name = html.unescape(re.sub(r"<[^>]+>", "", name_html)).strip()
+                result.append({"name": name, "date": date.strip(), "reason": reason.strip()})
+    except Exception as e:
+        print(f"  [관리종목 목록 조회 오류] {e}")
+    _ADMIN_ISSUE_LIST_CACHE = result
+    return result
 
 
 def _get_admin_issue_tickers(base_dd: str) -> dict:
-    """KRX Open API(KRX_OPENAPI_KEY)의 종목기본정보에서 SECT_TP_NM(소속부)에
-    "관리종목"·"정리매매"가 포함된 종목을 조회해 {ticker: 사유} 로 반환한다.
-    2026-08-02 추가 - 케이엠제약(225430)이 관리종목인데 Top10에 섞여 있던 걸
-    회장님이 지적해 발견(그 전까지는 이 필터가 아예 없었음, KRX_ID/KRX_PW
-    로그인이 필요한 줄 알았는데 KRX_OPENAPI_KEY로 로그인 없이 조회 가능했다)."""
+    """base_dd(YYYYMMDD) 시점에 이미 관리종목으로 지정돼 있던 종목을
+    {종목명: 사유} 로 반환한다(지정일 <= base_dd인 것만)."""
     global _ADMIN_ISSUE_CACHE
     if base_dd in _ADMIN_ISSUE_CACHE:
         return _ADMIN_ISSUE_CACHE[base_dd]
-    result: dict = {}
-    key = os.environ.get("KRX_OPENAPI_KEY")
-    if not key:
-        _ADMIN_ISSUE_CACHE[base_dd] = result
-        return result
-    for market in ("stk", "ksq"):
-        try:
-            r = requests.get(
-                f"https://data-dbg.krx.co.kr/svc/apis/sto/{market}_isu_base_info",
-                headers={"AUTH_KEY": key}, params={"basDd": base_dd}, timeout=20,
-            )
-            for row in r.json().get("OutBlock_1", []):
-                sect = row.get("SECT_TP_NM", "")
-                if "관리종목" in sect:
-                    result[row["ISU_SRT_CD"]] = "관리종목"
-                elif "정리매매" in sect:
-                    result[row["ISU_SRT_CD"]] = "정리매매"
-        except Exception as e:
-            print(f"  [관리종목 조회 오류] {market} {base_dd}: {e}")
+    base_date_str = f"{base_dd[:4]}-{base_dd[4:6]}-{base_dd[6:]}"
+    result = {
+        item["name"]: "관리종목"
+        for item in _fetch_admin_issue_list()
+        if item["date"] <= base_date_str
+    }
     _ADMIN_ISSUE_CACHE[base_dd] = result
     return result
 
@@ -123,11 +157,10 @@ def classify_excluded(ticker: str, name: str, base_dd: str | None = None) -> str
     확인된 사실: ETN은 상품명에 항상 "ETN"이 포함되고, 우선주는 종목명이
     (숫자)우(B)로 끝나는 KRX 표기 관례를 따른다(예: 진흥기업2우B). ETF는
     브랜드명(KODEX/TIGER 등)만으로 이름에서 판별할 수 없어 네이버 ETF
-    목록 API로 종목코드를 직접 대조한다. 관리종목·정리매매는 KRX Open API
-    종목기본정보의 SECT_TP_NM(소속부)로 판별한다(KRX_OPENAPI_KEY 필요 -
-    없으면 이 검사만 조용히 건너뛴다). 리츠는 종목명이 항상 "리츠"로
-    끝나는 KRX 표기 관례로 판별한다(예: 마스턴프리미어리츠, SK리츠 -
-    2026-08-04 추가, 재무정보 표(기업실적분석)가 없어 데이터가 항상
+    목록 API로 종목코드를 직접 대조한다. 관리종목은 KIND 관리종목 현황
+    화면(_get_admin_issue_tickers, 종목명 기준)으로 판별한다. 리츠는 종목명이
+    항상 "리츠"로 끝나는 KRX 표기 관례로 판별한다(예: 마스턴프리미어리츠,
+    SK리츠 - 2026-08-04 추가, 재무정보 표(기업실적분석)가 없어 데이터가 항상
     비는 문제가 있어 회장님이 제외 요청).
 
     base_dd(YYYYMMDD)를 주면 그 날짜 기준으로 조회하고(백필용), 생략하면
@@ -144,8 +177,8 @@ def classify_excluded(ticker: str, name: str, base_dd: str | None = None) -> str
     if base_dd is None:
         base_dd = datetime.now(KST).strftime("%Y%m%d")
     admin_issue = _get_admin_issue_tickers(base_dd)
-    if ticker in admin_issue:
-        return admin_issue[ticker]
+    if name in admin_issue:
+        return admin_issue[name]
     return None
 
 
