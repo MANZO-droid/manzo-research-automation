@@ -181,7 +181,10 @@ def backfill_date(client, date_str: str, analyze_fn=None):
                                     technicals=g["technicals"])
         g["riseReason"] = rise
         g["chartAnalysis"] = chart
-        time.sleep(1)
+        # 2026-08-30: 백필은 하루치 자동 실행과 달리 짧은 시간에 10종목을 몰아서
+        # 분석 요청하다 보니 Groq 무료 티어 TPM/RPM에 계속 걸렸다(회장님이
+        # 8/14~8/28 백필 도중 발견). 종목 사이 간격을 넉넉히 벌려 완화한다.
+        time.sleep(15)
 
     entry = {"date": date_str, "updatedAt": datetime.now(KST).isoformat(),
               "gainers": gainers, "volumeStocks": volume_stocks}
