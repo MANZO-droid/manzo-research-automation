@@ -307,10 +307,18 @@ def get_daily_top10(date_str: str) -> list[dict]:
     통째로 빠져 있었음 - 상한가는 대개 그날 진짜 1위인데도). sise_upper도
     같이 모아서 합쳐야 진짜 Top10이 나온다. sise_upper는 KOSPI/KOSDAQ이
     한 페이지에 같이 나온다(시장별 URL 분리 없음 - 상한가 종목 수가
-    적어서로 추정)."""
+    적어서로 추정).
+
+    2026-09-05 버그 수정: 네이버가 전용 URL `sise_rise_ksdaq.naver`를
+    없애고(404) `sise_rise.naver?sosok=1` 쿼리 파라미터 방식으로 바꿨다.
+    fetch_top_gainers가 404를 예외로 잡아 빈 리스트를 조용히 반환하는
+    바람에, 이 사실을 몰랐던 기간 동안 KOSDAQ 상승률 종목이 통째로
+    빠지고 있었다(9/3·9/4 Top10이 KOSPI 종목만으로 채워져 있었음 - 회장님이
+    1위 등락률이 30%에 한참 못 미치는 걸 보고 지적해서 발견). 새 쿼리
+    파라미터 방식으로 교체."""
     kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=40)
     time.sleep(0.5)
-    kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=40)
+    kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver?sosok=1", top_n=40)
     time.sleep(0.5)
     upper = fetch_top_gainers("https://finance.naver.com/sise/sise_upper.naver", top_n=40)
 
@@ -1226,7 +1234,7 @@ def run_daily(client, date_str: str):
     # 주간 리포트 계산용 원본에도 상한가 종목을 포함시킨다(안 그러면
     # 이 raw_top_candidates를 읽는 주간 복리 계산도 계속 틀리게 됨).
     kospi_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=100)
-    kosdaq_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise_ksdaq.naver", top_n=100)
+    kosdaq_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver?sosok=1", top_n=100)  # 2026-09-05: 전용 URL 404로 교체
     upper_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_upper.naver", top_n=100)
     save_raw_candidates(date_str, kospi_raw + upper_raw, kosdaq_raw)
 
