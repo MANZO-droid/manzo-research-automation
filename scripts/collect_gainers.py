@@ -200,50 +200,57 @@ def load_env():
 
 # ─── 네이버 증권 상승률 상위 수집 ─────────────────────────────────────────────
 
-def fetch_top_gainers(market_url: str, top_n: int = 20) -> list[dict]:
-    """네이버 증권 상승률 상위 페이지에서 종목 수집."""
+def fetch_top_gainers(market: str, top_n: int = 40) -> list[dict]:
+    """네이버 증권 상승률 상위 종목 수집. market: "KOSPI" 또는 "KOSDAQ".
+
+    2026-09-12 전면 교체: 기존 PC용 sise_rise.naver 페이지가 Next.js
+    SPA로 개편되면서 서버 렌더링 <table>이 아예 사라졌다(회장님이
+    9/10~9/12 상승률 Top10이 하나도 안 쌓인 걸 발견해서 확인해보니,
+    파싱 결과가 항상 0개였는데도 "제외 처리 후 0개"라는 경고만 찍고
+    워크플로 자체는 "성공"으로 끝나 조용히 빈 데이터만 저장되고 있었다).
+    네이버 모바일 앱이 쓰는 JSON API(m.stock.naver.com)로 교체 - 이 API는
+    상한가(가격제한폭 도달) 종목도 이미 등락률 내림차순에 올바르게 섞여서
+    주므로(item.compareToPreviousPrice.name == "UPPER_LIMIT"), 2026-08-17에
+    따로 병합하던 sise_upper.naver 호출이 더 이상 필요 없어졌다."""
     stocks = []
+    page, page_size = 1, 100
     try:
-        r = requests.get(market_url, headers=HEADERS, timeout=15)
-        r.encoding = "euc-kr"
-        soup = BeautifulSoup(r.text, "html.parser")
-        rows = soup.select("table.type_2 tr")
-        for row in rows:
-            tds = row.select("td")
-            if len(tds) < 10:
-                continue
-            a = tds[1].find("a")
-            if not a:
-                continue
-            href = a.get("href", "")
-            # 정식 종목은 항상 6자리 숫자 코드. "0197X0"처럼 문자가 섞인 코드는
-            # 개별종목 선물연계 ETN 등 파생상품이므로 애초에 후보에 넣지 않는다.
-            m = re.search(r"code=(\d{6})(?![0-9A-Za-z])", href)
-            if not m:
-                continue
-            ticker = m.group(1)
-            name = a.get_text(strip=True)
-            close_raw = tds[2].get_text(strip=True).replace(",", "")
-            rate_raw = tds[4].get_text(strip=True).replace("+", "").replace("%", "").replace(",", "")
-            vol_raw = tds[5].get_text(strip=True).replace(",", "") if len(tds) > 5 else "0"
-            try:
-                close = int(close_raw)
-                change_pct = float(rate_raw)
-                volume = int(vol_raw) if vol_raw.replace("0","").isdigit() or vol_raw.isdigit() else 0
-            except Exception:
-                continue
-            stocks.append({
-                "ticker": ticker,
-                "name": name,
-                "close": close,
-                "changePct": change_pct,
-                "volume": volume,
-                "tradeAmount": close * volume,
-            })
-            if len(stocks) >= top_n:
+        while len(stocks) < top_n:
+            r = requests.get(
+                f"https://m.stock.naver.com/api/stocks/up/{market}",
+                params={"page": page, "pageSize": page_size},
+                headers=HEADERS, timeout=15,
+            )
+            r.raise_for_status()
+            items = r.json().get("stocks", [])
+            if not items:
                 break
+            for item in items:
+                ticker = item.get("itemCode", "")
+                if not (len(ticker) == 6 and ticker.isdigit()):
+                    continue
+                try:
+                    close = int(item["closePriceRaw"])
+                    change_pct = float(item["fluctuationsRatio"])
+                    volume = int(item["accumulatedTradingVolumeRaw"])
+                    trade_amount = int(item.get("accumulatedTradingValueRaw") or close * volume)
+                except (KeyError, ValueError):
+                    continue
+                stocks.append({
+                    "ticker": ticker,
+                    "name": item.get("stockName", ""),
+                    "close": close,
+                    "changePct": change_pct,
+                    "volume": volume,
+                    "tradeAmount": trade_amount,
+                })
+                if len(stocks) >= top_n:
+                    break
+            if len(items) < page_size:
+                break
+            page += 1
     except Exception as e:
-        print(f"  [수집 오류] {market_url}: {e}")
+        print(f"  [수집 오류] {market}: {e}")
     return stocks
 
 
@@ -300,29 +307,23 @@ def fetch_weekly_candidates_from_db(week_start: str, week_end: str) -> dict:
 def get_daily_top10(date_str: str) -> list[dict]:
     """KOSPI+KOSDAQ 합산 상승률 상위 10종목 반환 (우선주·ETF·ETN 제외).
 
-    2026-08-17 버그 수정: 네이버가 상한가(+30%, 가격제한폭 도달)로 "잠긴"
-    종목을 sise_rise.naver(상승률 상위)가 아니라 별도 sise_upper.naver
-    (상한가) 페이지로 분리해서 보여준다는 걸 회장님이 08-11~08-14 데이터가
-    실제 Top10과 다르다고 지적해서 발견했다(정확히 30.00%로 찍힌 종목들이
-    통째로 빠져 있었음 - 상한가는 대개 그날 진짜 1위인데도). sise_upper도
-    같이 모아서 합쳐야 진짜 Top10이 나온다. sise_upper는 KOSPI/KOSDAQ이
-    한 페이지에 같이 나온다(시장별 URL 분리 없음 - 상한가 종목 수가
-    적어서로 추정).
-
-    2026-09-05 버그 수정: 네이버가 전용 URL `sise_rise_ksdaq.naver`를
-    없애고(404) `sise_rise.naver?sosok=1` 쿼리 파라미터 방식으로 바꿨다.
-    fetch_top_gainers가 404를 예외로 잡아 빈 리스트를 조용히 반환하는
-    바람에, 이 사실을 몰랐던 기간 동안 KOSDAQ 상승률 종목이 통째로
-    빠지고 있었다(9/3·9/4 Top10이 KOSPI 종목만으로 채워져 있었음 - 회장님이
-    1위 등락률이 30%에 한참 못 미치는 걸 보고 지적해서 발견). 새 쿼리
-    파라미터 방식으로 교체."""
-    kospi = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=40)
+    수집 방식 연혁(과거 버그 기록):
+    - 2026-08-17: sise_rise.naver가 상한가(+30%) 종목을 별도 sise_upper.naver로
+      분리해 보여줘서 그 종목들이 통째로 빠졌던 버그 수정(sise_upper 병합 추가).
+    - 2026-09-05: 전용 URL sise_rise_ksdaq.naver가 404로 없어져 KOSDAQ 종목이
+      전부 빠졌던 버그 수정(?sosok=1 쿼리 파라미터로 교체).
+    - 2026-09-12: sise_rise.naver 자체가 Next.js SPA로 전면 개편되며 서버
+      렌더링 <table>이 사라져 위 두 수정 다 무의미해짐 - 파싱 결과가 항상
+      0개인데도 "성공"으로 조용히 빈 데이터만 저장되고 있었다(회장님이
+      9/10~9/12 Top10이 아예 안 쌓인 걸 발견). fetch_top_gainers를 네이버
+      모바일 JSON API(m.stock.naver.com) 기반으로 전면 교체 - 이 API는
+      상한가 종목도 이미 올바른 순서로 포함하므로 sise_upper 병합 자체가
+      필요 없어짐(자세한 내용은 fetch_top_gainers 문서 참고)."""
+    kospi = fetch_top_gainers("KOSPI", top_n=40)
     time.sleep(0.5)
-    kosdaq = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver?sosok=1", top_n=40)
-    time.sleep(0.5)
-    upper = fetch_top_gainers("https://finance.naver.com/sise/sise_upper.naver", top_n=40)
+    kosdaq = fetch_top_gainers("KOSDAQ", top_n=40)
 
-    all_stocks = kospi + kosdaq + upper
+    all_stocks = kospi + kosdaq
     # 등락률 내림차순 정렬, 중복 ticker 제거, 제외 대상은 건너뛰고 다음 순위로 채움
     seen = set()
     top10 = []
@@ -1233,14 +1234,23 @@ def run_daily(client, date_str: str):
     # 2026-08-17: 상한가 종목이 sise_rise에 안 잡히는 버그 수정과 함께,
     # 주간 리포트 계산용 원본에도 상한가 종목을 포함시킨다(안 그러면
     # 이 raw_top_candidates를 읽는 주간 복리 계산도 계속 틀리게 됨).
-    kospi_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver", top_n=100)
-    kosdaq_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_rise.naver?sosok=1", top_n=100)  # 2026-09-05: 전용 URL 404로 교체
-    upper_raw = fetch_top_gainers("https://finance.naver.com/sise/sise_upper.naver", top_n=100)
-    save_raw_candidates(date_str, kospi_raw + upper_raw, kosdaq_raw)
+    kospi_raw = fetch_top_gainers("KOSPI", top_n=100)
+    kosdaq_raw = fetch_top_gainers("KOSDAQ", top_n=100)
+    if not kospi_raw or not kosdaq_raw:
+        raise RuntimeError(
+            f"원본 후보 수집 실패(KOSPI {len(kospi_raw)}개, KOSDAQ {len(kosdaq_raw)}개) - "
+            "네이버 API 응답이 비어있음. 조용히 빈 데이터를 저장하는 대신 실행을 실패 처리한다."
+        )
+    save_raw_candidates(date_str, kospi_raw, kosdaq_raw)
 
     print("1. 상승률 상위 10종목 수집 중...")
     gainers = get_daily_top10(date_str)
     print(f"   → {len(gainers)}개 수집 완료")
+    if len(gainers) < 10:
+        raise RuntimeError(
+            f"상승률 Top10 수집 실패({len(gainers)}개만 확보) - "
+            "2026-09-12 사고(9/10~9/12 조용히 빈 데이터 저장)가 재발하지 않도록 여기서 중단한다."
+        )
 
     print("2. 거래대금 상위 10종목 수집 중...")
     volume_stocks = fetch_volume_stocks()
