@@ -198,6 +198,9 @@ def make_article(mid, info):
     return {
         "title": text.split("\n")[0][:110],
         "summary": text.replace("\n", " ")[:220],
+        "full_text": text,  # 2026-09-13 추가: summary는 220자로 잘려 종목 태그가 다 짤림 (회장님 지적,
+        # valjuman 채널 "거래대금 상위 분석" 류 - 섹터별 "종목명(순위)" 태그가 수십 개라 요약이 의미 없어짐).
+        # 텔레그램 원문 전체를 그대로 담는다. summary는 다른 소비자가 의존할 수 있어 그대로 둠.
         "url": info["url"],
     }
 
