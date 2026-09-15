@@ -1144,71 +1144,54 @@ def fetch_prev_volume_stocks() -> dict:
 
 
 def fetch_volume_stocks() -> list[dict]:
+    """KOSPI+KOSDAQ 합산 거래대금 상위 10종목 반환.
+
+    수집 방식 연혁(과거 버그 기록):
+    - 2026-08-08: sise_quant.naver의 tds[5](거래량)를 tradeAmount로 잘못 읽던
+      버그 수정(tds[6]로 교체) - 이 페이지가 거래량순 정렬이라 여전히 저가
+      레버리지 ETF가 상위를 독점하는 문제가 있어, 한 페이지 전체를 모아
+      거래대금으로 재정렬하는 방식을 씀.
+    - 2026-09-15: sise_quant.naver/sise_quant_ksdaq.naver 자체가 (상승률
+      페이지와 동일하게) Next.js SPA로 개편되며 서버 렌더링 <table>이
+      사라져 파싱 결과가 항상 0개가 됨(회장님이 "9/10부터 거래대금 상위가
+      이상하다"고 지적해서 발견 - 실제로는 9/13·9/14가 통째로 빈 데이터).
+      회장님이 브라우저 개발자도구로 실제 API 호출(stock.naver.com/api/
+      domestic/market/stock/default)을 캡처해 주셔서 교체. 이 API에도
+      "거래대금 상위" 전용 정렬 옵션은 없다(orderType 유효값 목록을
+      400 에러 응답에서 확인: quantTop은 거래량 상위였음 - 예전과 같은
+      함정). pageSize를 크게 줘서(3000) 전 종목을 받아온 뒤 tradeAmount로
+      직접 재정렬하는, 예전과 같은 전략을 그대로 적용."""
     stocks = []
-    urls = [
-        "https://finance.naver.com/sise/sise_quant.naver",
-        "https://finance.naver.com/sise/sise_quant_ksdaq.naver",
-    ]
-    for url in urls:
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
-            r.encoding = "euc-kr"
-            soup = BeautifulSoup(r.text, "html.parser")
-            rows = soup.select("table.type_2 tr")
-            for row in rows:
-                tds = row.select("td")
-                if len(tds) < 10:
-                    continue
-                a = tds[1].find("a")
-                if not a:
-                    continue
-                href = a.get("href", "")
-                m = re.search(r"code=(\d{6})(?![0-9A-Za-z])", href)
-                if not m:
-                    continue
-                ticker = m.group(1)
-                name = a.get_text(strip=True)
-                close_raw = tds[2].get_text(strip=True).replace(",", "")
-                rate_raw = tds[4].get_text(strip=True).replace("+", "").replace("%", "").replace(",", "")
-                # tds[5]=거래량(주), tds[6]=거래대금(백만원 단위) - 예전엔 tds[5]를
-                # tradeAmount로 잘못 읽어서 실제로는 "거래량 상위"를 "거래대금 상위"로
-                # 표시하고 있었다(2026-08-08 발견 - 회장님이 순매수 금액 이상함을
-                # 지적해 조사하다가, 이 페이지가 기본적으로 거래량순 정렬이라 저가
-                # 레버리지/인버스 ETF가 항상 상위 10위를 독점하고 있었음을 확인).
-                amount_raw = tds[6].get_text(strip=True).replace(",", "") if len(tds) > 6 else "0"
-                # 전일 대비 가격(전일비): <em class="bu_pup|bu_pdn|bu_p2">의 부호 + <span> 숫자
-                price_change = 0
-                em = tds[3].select_one("em")
-                span = tds[3].select_one("span")
-                if em and span:
-                    num_raw = span.get_text(strip=True).replace(",", "")
-                    try:
-                        num = int(num_raw)
-                        classes = em.get("class") or []
-                        price_change = -num if "bu_pdn" in classes else num
-                    except ValueError:
-                        pass
-                try:
-                    close = int(close_raw)
-                    change_pct = float(rate_raw)
-                    trade_amount = int(amount_raw) * 1_000_000 if amount_raw.isdigit() else 0
-                except Exception:
-                    continue
-                stocks.append({
-                    "ticker": ticker,
-                    "name": name,
-                    "close": close,
-                    "changePct": change_pct,
-                    "tradeAmount": trade_amount,
-                    "priceChange": price_change,
-                    "naverUrl": f"https://finance.naver.com/item/main.naver?code={ticker}",
-                })
-                # 이 페이지는 거래량순 정렬이라 거래대금 상위가 뒤쪽 행에 있을 수
-                # 있다 - 한 페이지(최대 100행)를 전부 읽은 뒤 거래대금으로 다시
-                # 정렬해서 진짜 상위 10을 뽑는다(20개로 끊으면 놓칠 수 있음).
-        except Exception as e:
-            print(f"  [거래대금 수집 오류] {e}")
-        time.sleep(0.5)
+    try:
+        r = requests.get(
+            "https://stock.naver.com/api/domestic/market/stock/default",
+            params={"tradeType": "KRX", "marketType": "ALL", "orderType": "quantTop",
+                    "startIdx": 0, "pageSize": 3000},
+            headers=HEADERS, timeout=20,
+        )
+        r.raise_for_status()
+        for item in r.json():
+            ticker = item.get("itemcode", "")
+            if not (len(ticker) == 6 and ticker.isdigit()):
+                continue
+            try:
+                close = int(item["nowPrice"])
+                change_pct = float(item["prevChangeRate"])
+                trade_amount = int(item["tradeAmount"])
+                price_change = int(item["prevChangePrice"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            stocks.append({
+                "ticker": ticker,
+                "name": item.get("itemname", ""),
+                "close": close,
+                "changePct": change_pct,
+                "tradeAmount": trade_amount,
+                "priceChange": price_change,
+                "naverUrl": f"https://finance.naver.com/item/main.naver?code={ticker}",
+            })
+    except Exception as e:
+        print(f"  [거래대금 수집 오류] {e}")
 
     # 거래대금 내림차순 상위 10개
     top10 = sorted(stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
@@ -1255,6 +1238,11 @@ def run_daily(client, date_str: str):
     print("2. 거래대금 상위 10종목 수집 중...")
     volume_stocks = fetch_volume_stocks()
     print(f"   → {len(volume_stocks)}개 수집 완료")
+    if len(volume_stocks) < 10:
+        raise RuntimeError(
+            f"거래대금 상위 수집 실패({len(volume_stocks)}개만 확보) - "
+            "2026-09-15 사고(네이버 API 응답이 비어 조용히 빈 데이터만 저장됨)가 재발하지 않도록 여기서 중단한다."
+        )
 
     print("3. 종목별 OHLCV·뉴스·분석 진행 중...")
     for g in gainers:
