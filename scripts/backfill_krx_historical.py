@@ -34,6 +34,7 @@ from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, calc_ma_lines, fetch_stock_news,
     fetch_stock_news_staged, news_to_dicts,
     fetch_financials, build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
+    fetch_prev_volume_stocks,
     save_raw_candidates, save_to_supabase, get_weekly_top10, KST, has_language_issue,
 )
 from krx_calendar import is_trading_day  # noqa: E402
@@ -86,11 +87,19 @@ def build_daily_top10(all_stocks: list[dict], base_dd: str) -> list[dict]:
 
 
 def build_volume_top10(all_stocks: list[dict], date_str: str) -> list[dict]:
+    """2026-09-15 수정: prevRank/prevTradeAmount를 아예 안 채우고 있었다 - 이 백필
+    경로로 채워진 9/10~9/14 거래대금 상위가 사이트에서 전부 "(신규)"로만
+    떴다(회장님 발견). collect_gainers.py의 fetch_volume_stocks()와 동일하게
+    Supabase의 가장 최근 trade_date를 전일로 보고 순위를 붙인다."""
     top10 = sorted(all_stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
+    prev = fetch_prev_volume_stocks()
     for i, s in enumerate(top10, 1):
         s = dict(s)
         s["rank"] = i
         s["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={s['ticker']}"
+        p = prev.get(s["ticker"])
+        s["prevRank"] = p["rank"] if p else None
+        s["prevTradeAmount"] = p["tradeAmount"] if p else None
         s["investors"] = fetch_investor_netbuy(s["ticker"], s["close"], target_date=date_str,
                                                 trade_amount=s.get("tradeAmount"))
         top10[i - 1] = s
