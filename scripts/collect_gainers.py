@@ -1055,65 +1055,54 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
 
 def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = None,
                            trade_amount: int | None = None) -> dict:
-    """네이버 종목 페이지(frgn.naver)에서 기관·외국인 순매매량(주)을 읽어 종가와
-    곱해 순매수 금액(원)을 근사한다. 개인은 -(기관+외국인)의 역산값(사이트 UI
-    안내문과 동일한 근사 방식 - index.html의 "※ 개인 순매수는..." 참고).
+    """네이버 모바일 API에서 외국인·기관·개인 순매수량(주)을 읽어 각 날짜의
+    실제 종가와 곱해 순매수 금액(원)을 계산한다.
 
-    target_date(YYYY-MM-DD)를 주면 이 표가 실제로 제공하는 날짜별 이력에서
-    해당 날짜 행을 찾는다(최대 3페이지=약 30영업일 앞까지 탐색 - 과거 데이터
-    백필용). 생략하면 최신(1페이지 첫 행)을 반환한다(일일 자동 실행용)."""
-    target = target_date.replace("-", ".") if target_date else None
+    2026-09-15 전면 교체: 기존 frgn.naver 페이지가 (상승률/거래대금 상위
+    페이지와 동일하게) Next.js SPA로 개편되며 서버 렌더링 <table>이 사라져
+    항상 "표 구조가 예상과 다름"만 반환하고 있었다(회장님이 브라우저
+    개발자도구로 실제 API 호출을 캡처해 주셔서 발견). 이 API는 개인
+    순매수량도 직접 주므로(예전엔 -(기관+외국인) 역산값을 썼음 - 실제로는
+    "기타법인" 등 다른 투자자 구분도 있어 정확히 맞아떨어지지 않는 근사였다),
+    이제 세 값 다 실측치를 그대로 쓴다. 행마다 그날 종가도 함께 주므로
+    (예전엔 오늘 종가 하나로 과거 행까지 계산해 약간의 오차가 있었음)
+    더 정확해졌다.
+
+    target_date(YYYY-MM-DD)를 주면 그 날짜 행을 찾는다(pageSize=60이면
+    약 3개월 전까지 커버 - 과거 데이터 백필용). 생략하면 최신(1행)을
+    반환한다(일일 자동 실행용)."""
     try:
-        for page in range(1, 4 if target else 2):
-            r = requests.get(
-                f"https://finance.naver.com/item/frgn.naver?code={ticker}&page={page}",
-                headers=HEADERS, timeout=10,
-            )
-            r.encoding = "euc-kr"
-            soup = BeautifulSoup(r.text, "html.parser")
-            # "외국인 기관 순매매 거래량" 표를 고정 인덱스가 아니라 summary 텍스트로
-            # 찾는다 - ETF/ETN은 앞쪽 "주요 시세" 표가 1개뿐이라 인덱스가 밀려서
-            # 페이지 네비게이션 표를 순매수 표로 잘못 읽는 버그가 있었다(2026-08-08
-            # 발견 - 거래대금 94억원짜리 종목의 기관 순매수가 582원으로 나옴,
-            # fetch_financials의 table.tb_type1_ifrs 인덱스 버그와 같은 유형).
-            table = soup.find("table", summary=lambda s: s and "외국인" in s and "기관" in s)
-            if table is None:
-                print(f"    [순매수 표 없음] {ticker} - 표 구조가 예상과 다름")
-                break
-            for row in table.select("tr"):
-                tds = row.select("td")
-                if len(tds) < 9:
-                    continue
-                date_text = tds[0].get_text(strip=True)
-                if not date_text:
-                    continue
-                if target and date_text != target:
-                    continue
-                inst_raw = tds[5].get_text(strip=True).replace(",", "").replace("+", "")
-                frgn_raw = tds[6].get_text(strip=True).replace(",", "").replace("+", "")
-                try:
-                    inst_shares = int(inst_raw)
-                    frgn_shares = int(frgn_raw)
-                except ValueError:
-                    continue
-                # 정합성 검사: 기관·외국인 순매매량(주)은 그날 총거래량을 넘을 수 없다.
-                # KRX 원본 거래대금(trade_amount, 원)을 종가로 나눠 총거래량(주)을
-                # 역산해 기준으로 삼는다 - 네이버 표의 거래량 컬럼(tds[4])은 일부
-                # ETF에서 실제로는 다른 값(거래대금으로 추정)을 보여주는 이상 사례가
-                # 있어(2026-08-08 발견, 252670에서 기관 순매매량이 총거래량의 2배로
-                # 계산됨) 이 컬럼 자체를 기준으로 쓸 수 없다.
-                if trade_amount and close:
-                    implied_volume = trade_amount / close
-                    if abs(inst_shares) > implied_volume * 1.5 or abs(frgn_shares) > implied_volume * 1.5:
-                        print(f"    [순매수 이상치] {ticker} {date_text}: 순매매량이 추정 총거래량({implied_volume:.0f}주)을 초과 - 저장 안 함")
-                        return {"individual": 0, "institution": 0, "foreign": 0}
-                institution = inst_shares * close
-                foreign = frgn_shares * close
-                individual = -(institution + foreign)
-                return {"individual": individual, "institution": institution, "foreign": foreign}
-            if not target:
-                break
-            time.sleep(0.2)
+        r = requests.get(
+            f"https://m.stock.naver.com/api/stock/{ticker}/trend",
+            params={"tradeType": "KRX", "startIdx": 0, "pageSize": 60 if target_date else 5},
+            headers=HEADERS, timeout=10,
+        )
+        r.raise_for_status()
+        rows = r.json()
+        target_biz = target_date.replace("-", "") if target_date else None
+        for row in rows:
+            if target_biz and row.get("bizdate") != target_biz:
+                continue
+            try:
+                row_close = int(row["closePrice"].replace(",", ""))
+                inst_shares = int(row["organPureBuyQuant"].replace(",", "").replace("+", ""))
+                frgn_shares = int(row["foreignerPureBuyQuant"].replace(",", "").replace("+", ""))
+                indiv_shares = int(row["individualPureBuyQuant"].replace(",", "").replace("+", ""))
+            except (KeyError, ValueError):
+                continue
+            # 정합성 검사: 순매매량(주)은 그날 총거래량을 넘을 수 없다(과거
+            # 표 선택 버그 때와 같은 이유로 유지 - 값을 지어내지 않기 위함).
+            if trade_amount and row_close:
+                implied_volume = trade_amount / row_close
+                if (abs(inst_shares) > implied_volume * 1.5 or abs(frgn_shares) > implied_volume * 1.5
+                        or abs(indiv_shares) > implied_volume * 1.5):
+                    print(f"    [순매수 이상치] {ticker} {row.get('bizdate')}: 순매매량이 추정 총거래량({implied_volume:.0f}주)을 초과 - 저장 안 함")
+                    return {"individual": 0, "institution": 0, "foreign": 0}
+            return {
+                "individual": indiv_shares * row_close,
+                "institution": inst_shares * row_close,
+                "foreign": frgn_shares * row_close,
+            }
     except Exception as e:
         print(f"    [순매수 수집 오류] {ticker}: {e}")
     return {"individual": 0, "institution": 0, "foreign": 0}
