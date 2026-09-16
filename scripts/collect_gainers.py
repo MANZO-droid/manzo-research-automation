@@ -1389,6 +1389,30 @@ def volume_to_row(date_str: str, v: dict) -> dict:
     }
 
 
+def already_collected(date_str: str, report_type: str) -> bool:
+    """daily_gainers에 이 날짜·리포트 종류가 이미 저장돼 있는지 확인한다.
+
+    2026-09-16 추가: 그날 예약(cron) 실행이 지연되다가, 회장님이 수동으로
+    먼저 돌린 뒤 뒤늦게 원래 예약 실행까지 또 발동해 같은 날짜가 두 번
+    수집된 사고 이후 추가(회장님 요청 - "중복 실행 스킵 가드"). 무인 자동
+    실행(main()의 unattended 분기)에서만 쓰고, 사람이 --date/--mode로 명시
+    지정한 수동 재실행/백필은 의도된 것이므로 막지 않는다."""
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    try:
+        r = requests.get(
+            f"{url}/rest/v1/daily_gainers"
+            f"?select=trade_date&trade_date=eq.{date_str}&report_type=eq.{report_type}&limit=1",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        return len(r.json()) > 0
+    except Exception as e:
+        print(f"  [중복 실행 확인 오류] {e} - 확인 실패 시 안전하게 계속 진행한다")
+        return False
+
+
 def save_to_supabase(date_str: str, entry: dict, report_type: str,
                       week_start: str | None, week_end: str | None):
     gainer_rows = [gainer_to_row(date_str, g, report_type, week_start, week_end)
@@ -1442,6 +1466,12 @@ def main():
             print(f"[자동 판단] {date_str} → weekly 모드 (주간 구간 {week_start} ~ {week_end})")
         else:
             print(f"[자동 판단] {date_str} → daily 모드")
+
+        if already_collected(date_str, mode):
+            print(f"[skip] {date_str}({mode})는 이미 수집·저장돼 있습니다 - "
+                  "예약 실행 지연 후 중복 발동 등으로 같은 날짜가 두 번 도는 것을 막기 위해 "
+                  "여기서 중단합니다. 재수집이 필요하면 --date/--mode를 명시해 수동 실행하세요.")
+            return
     else:
         date_str = args.date or datetime.now(KST).strftime("%Y-%m-%d")
         weekday = datetime.strptime(date_str, "%Y-%m-%d").weekday()  # 0=월, 6=일
