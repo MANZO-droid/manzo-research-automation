@@ -92,7 +92,7 @@ def build_volume_top10(all_stocks: list[dict], date_str: str) -> list[dict]:
     떴다(회장님 발견). collect_gainers.py의 fetch_volume_stocks()와 동일하게
     Supabase의 가장 최근 trade_date를 전일로 보고 순위를 붙인다."""
     top10 = sorted(all_stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
-    prev = fetch_prev_volume_stocks()
+    prev = fetch_prev_volume_stocks(date_str)
     for i, s in enumerate(top10, 1):
         s = dict(s)
         s["rank"] = i

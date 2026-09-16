@@ -1108,15 +1108,23 @@ def fetch_investor_netbuy(ticker: str, close: int, target_date: str | None = Non
     return {"individual": 0, "institution": 0, "foreign": 0}
 
 
-def fetch_prev_volume_stocks() -> dict:
-    """Supabase에서 가장 최근 trade_date의 volume_stocks를 ticker 기준으로 조회해
-    {ticker: {rank, tradeAmount}} 형태로 반환. 오늘 것과 비교해 전일 순위·거래대금을 낸다."""
+def fetch_prev_volume_stocks(date_str: str) -> dict:
+    """Supabase에서 date_str보다 이전인 가장 최근 trade_date의 volume_stocks를
+    ticker 기준으로 조회해 {ticker: {rank, tradeAmount}} 형태로 반환. 오늘 것과
+    비교해 전일 순위·거래대금을 낸다.
+
+    2026-09-16 date_str 인자 추가 + trade_date=lt.{date_str} 조건 추가: 예전엔
+    "테이블에서 가장 최근 trade_date"를 무조건 전일로 봤는데, 그날 워크플로가
+    두 번 도는 경우(그날 예약 실행이 지연되다 수동 실행 뒤에 뒤늦게 또 발동한
+    사고 - 회장님이 "오늘 순위와 전일 순위가 모두 똑같다"고 지적해서 발견)
+    이미 저장된 "오늘" 자신의 행을 전일로 착각해 순위·거래대금이 전부 자기
+    자신과 100% 일치하는 채로 저장됐었다."""
     url = os.environ["SUPABASE_URL"]
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     try:
         r = requests.get(
             f"{url}/rest/v1/volume_stocks?select=trade_date,rank,ticker,trade_amount"
-            f"&order=trade_date.desc,rank.asc&limit=10",
+            f"&trade_date=lt.{date_str}&order=trade_date.desc,rank.asc&limit=10",
             headers={"apikey": key, "Authorization": f"Bearer {key}"},
             timeout=15,
         )
@@ -1132,8 +1140,10 @@ def fetch_prev_volume_stocks() -> dict:
         return {}
 
 
-def fetch_volume_stocks() -> list[dict]:
-    """KOSPI+KOSDAQ 합산 거래대금 상위 10종목 반환.
+def fetch_volume_stocks(date_str: str) -> list[dict]:
+    """KOSPI+KOSDAQ 합산 거래대금 상위 10종목 반환. date_str은 이번에 저장할
+    trade_date - fetch_prev_volume_stocks()가 "전일"을 찾을 때 이 날짜 자신을
+    제외하기 위해 필요하다(같은 날 워크플로가 중복 실행되는 경우 대비).
 
     수집 방식 연혁(과거 버그 기록):
     - 2026-08-08: sise_quant.naver의 tds[5](거래량)를 tradeAmount로 잘못 읽던
@@ -1185,7 +1195,7 @@ def fetch_volume_stocks() -> list[dict]:
     # 거래대금 내림차순 상위 10개
     top10 = sorted(stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
 
-    prev = fetch_prev_volume_stocks()
+    prev = fetch_prev_volume_stocks(date_str)
     for i, s in enumerate(top10, 1):
         s["rank"] = i
         p = prev.get(s["ticker"])
@@ -1225,7 +1235,7 @@ def run_daily(client, date_str: str):
         )
 
     print("2. 거래대금 상위 10종목 수집 중...")
-    volume_stocks = fetch_volume_stocks()
+    volume_stocks = fetch_volume_stocks(date_str)
     print(f"   → {len(volume_stocks)}개 수집 완료")
     if len(volume_stocks) < 10:
         raise RuntimeError(
@@ -1279,7 +1289,7 @@ def run_weekly(client, date_str: str, from_date: str, to_date: str):
     print(f"   → {len(gainers)}개 수집 완료")
 
     print("2. 거래대금 상위 10종목 수집 중...")
-    volume_stocks = fetch_volume_stocks()
+    volume_stocks = fetch_volume_stocks(date_str)
 
     print("3. 종목별 OHLCV·뉴스·분석 진행 중...")
     for g in gainers:
