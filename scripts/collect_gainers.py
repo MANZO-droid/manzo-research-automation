@@ -389,6 +389,37 @@ def get_weekly_top10(from_date: str, to_date: str) -> list[dict]:
     return top10
 
 
+# ─── 기업개요(무슨 사업을 하는 회사인지) ──────────────────────────────────────
+
+def fetch_company_overview(ticker: str) -> str:
+    """이 회사가 무슨 사업으로 매출을 내는지(기업개요) 1~3문장을 가져온다.
+
+    2026-09-17 추가(회장님 요청 - "상승 이유를 작성할 때 그 회사가 일단
+    무엇을 하는 회사인지도 같이 붙여달라"). WISE(FnGuide)가 제공하고
+    navercomp.wisereport.co.kr(과거 finance.naver.com 기업개요 탭이 iframe으로
+    끌어오던 바로 그 소스)에 실리는 공식 기업개요 문구를 그대로 쓴다 - 뉴스처럼
+    매일 바뀌는 내용이 아니라 회사의 사업 구조를 설명하는 정적인 정보라
+    LLM에게 추측시키는 것보다 이 쪽이 훨씬 정확하다.
+
+    ⚠ 이 페이지는 UTF-8이다(finance.naver.com 계열의 EUC-KR과 다름 - 직접
+    확인 필요, 안 그러면 한글이 깨진다)."""
+    try:
+        r = requests.get(
+            "https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx",
+            params={"cmp_cd": ticker}, headers=HEADERS, timeout=10,
+        )
+        r.encoding = "utf-8"
+        soup = BeautifulSoup(r.text, "html.parser")
+        ul = soup.select_one("ul.dot_cmp")
+        if not ul:
+            return ""
+        sentences = [li.get_text(strip=True) for li in ul.select("li") if li.get_text(strip=True)]
+        return " ".join(sentences)[:400]
+    except Exception as e:
+        print(f"    [기업개요 수집 오류] {ticker}: {e}")
+        return ""
+
+
 # ─── 재무 정보(기업실적분석) ──────────────────────────────────────────────────
 
 def fetch_financials(ticker: str) -> dict:
@@ -1100,6 +1131,14 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
                   change_pct: float, articles: list[dict],
                   technicals: dict | None = None,
                   is_weekly: bool = False) -> tuple[str, str]:
+    # 2026-09-17 추가(회장님 요청 - "상승 이유를 쓸 때 이 회사가 일단 무엇을
+    # 하는 회사인지, 주요 매출을 어디서 내는지도 같이 붙여달라"). 뉴스 유무와
+    # 무관하게 항상 맨 앞에 붙인다 - 사업 내용은 오늘 상승과 별개로 항상
+    # 유효한 배경 정보이기 때문. LLM이 회사 소개를 지어내게 하지 않고, 정적인
+    # 공식 기업개요 문구(fetch_company_overview)를 그대로 인용한다.
+    overview = fetch_company_overview(ticker)
+    overview_prefix = f"[사업개요] {overview}\n\n" if overview else ""
+
     if not articles:
         # 2026-09-17 수정: 뉴스가 없으면 chartAnalysis까지 통째로 ""로 반환하고
         # 있었다(회장님 발견 - "몇몇 종목은 상승이유와 차트분석 자료가 아예
@@ -1133,10 +1172,11 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
                     context = m.group(1).strip() if m else text.strip()
                 if context:
                     rise_reason += f"\n\n[업종 맥락 참고 - {name}을(를) 직접 언급한 기사는 없음] {context}"
-        return rise_reason, chart
+        return overview_prefix + rise_reason, chart
     prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
     text = call_groq_with_retry(client, prompt)
-    return parse_analysis_response(text)
+    rise, chart = parse_analysis_response(text)
+    return overview_prefix + rise, chart
 
 
 # ─── 거래대금 상위(volumeStocks) 수집 ────────────────────────────────────────
