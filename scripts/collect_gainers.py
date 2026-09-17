@@ -392,73 +392,65 @@ def get_weekly_top10(from_date: str, to_date: str) -> list[dict]:
 # ─── 재무 정보(기업실적분석) ──────────────────────────────────────────────────
 
 def fetch_financials(ticker: str) -> dict:
-    """네이버 종목 메인 페이지의 "기업실적분석" 표에서 가장 최근 실제 발표된
-    분기 실적(추정치(E) 제외)을 읽어온다. 매출증가율은 같은 분기 전년동기 대비.
+    """가장 최근 실제 발표된 분기 실적(컨센서스/추정치 제외)을 읽어온다.
+    매출증가율은 같은 분기 전년동기 대비.
 
-    ⚠ 이 페이지(item/main.naver)는 EUC-KR이 아니라 UTF-8이다 - 다른 함수들처럼
-    r.encoding을 강제로 euc-kr로 지정하면 한글이 깨진다(직접 확인한 실수 -
-    2026-08-01 재무정보 기능 추가 중 발견)."""
+    2026-09-17 교체: 기존 소스이던 finance.naver.com/item/main.naver의
+    "기업실적분석" 표가 이 세션에서 반복된 것과 같은 Next.js SPA 개편으로
+    서버 렌더링 <table>이 사라져(tables 0개) 9/10부터 모든 종목의 재무정보가
+    조용히 {}(누락)로 저장되고 있었다(회장님 발견 - "9/10부터 재무정보가
+    누락되기 시작했다"). m.stock.naver.com/api/stock/{ticker}/finance/quarter
+    JSON API로 교체 - trTitleList의 isConsensus="Y"가 예전 "(E)" 추정치
+    표기와 같은 역할을 한다."""
     try:
         r = requests.get(
-            f"https://finance.naver.com/item/main.naver?code={ticker}",
+            f"https://m.stock.naver.com/api/stock/{ticker}/finance/quarter",
             headers=HEADERS, timeout=10,
         )
-        soup = BeautifulSoup(r.text, "html.parser")
-        # "기업실적분석" 표를 고정 인덱스가 아니라 클래스로 찾는다 - 종목마다
-        # 앞쪽 "주요 시세" 표 개수가 달라(대형주는 2개, 대부분은 1개) 인덱스가
-        # 흔들린다(직접 확인 - 005930은 인덱스4, 044380은 인덱스3이었음).
-        table = soup.select_one("table.tb_type1_ifrs")
-        if table is None:
+        r.raise_for_status()
+        info = r.json().get("financeInfo") or {}
+        periods = info.get("trTitleList") or []
+        row_list = info.get("rowList") or []
+        rows = {row["title"]: row.get("columns", {}) for row in row_list}
+        if not periods or not rows:
             return {}
-        thead_rows = table.select("thead tr")
-        date_ths = thead_rows[1].select("th")
-        dates = [th.get_text(strip=True).split("(")[0].strip() for th in date_ths]
-        is_estimate = ["(E)" in th.get_text() for th in date_ths]
 
-        tbody = table.select_one("tbody")
-        rows = {}
-        for row in tbody.select("tr"):
-            th = row.select_one("th")
-            label = th.get_text(strip=True) if th else ""
-            rows[label] = [td.get_text(strip=True).replace(",", "") for td in row.select("td")]
+        def num(label, key):
+            cell = rows.get(label, {}).get(key)
+            if not cell or not cell.get("value"):
+                return None
+            try:
+                return float(cell["value"].replace(",", ""))
+            except ValueError:
+                return None
 
-        # 분기 컬럼은 뒤쪽 6개(연간 4개 + 분기 6개 = 총 10개 컬럼 기준). 그중
-        # 오른쪽부터 훑어 추정치(E)가 아닌 첫 컬럼 = 가장 최근 실제 발표 분기.
-        quarter_start = max(0, len(dates) - 6)
+        # 뒤(최신)에서부터 훑어 컨센서스(추정치)가 아닌 첫 분기 = 가장 최근 실제 발표 분기.
         idx = None
-        for i in range(len(dates) - 1, quarter_start - 1, -1):
-            if not is_estimate[i]:
+        for i in range(len(periods) - 1, -1, -1):
+            if periods[i].get("isConsensus") != "Y":
                 idx = i
                 break
         if idx is None:
             return {}
 
-        def num(label, i):
-            vals = rows.get(label, [])
-            if i >= len(vals) or not vals[i]:
-                return None
-            try:
-                return float(vals[i])
-            except ValueError:
-                return None
-
-        revenue = num("매출액", idx)
-        operating_profit = num("영업이익", idx)
-        operating_margin = num("영업이익률", idx)
+        key = periods[idx]["key"]
+        revenue = num("매출액", key)
+        operating_profit = num("영업이익", key)
+        operating_margin = num("영업이익률", key)
         if revenue is None or operating_profit is None:
             return {}
 
         # 전년동기(4분기 전) 매출액으로 YoY 매출증가율 계산
         revenue_growth = None
         prev_idx = idx - 4
-        if prev_idx >= quarter_start:
-            prev_revenue = num("매출액", prev_idx)
+        if prev_idx >= 0:
+            prev_revenue = num("매출액", periods[prev_idx]["key"])
             if prev_revenue:
                 revenue_growth = round((revenue - prev_revenue) / prev_revenue * 100, 1)
 
-        y, m = dates[idx].split(".")
+        y, m = key[:4], key[4:6]
         q = {"03": 1, "06": 2, "09": 3, "12": 4}.get(m, 0)
-        period = f"{y}년 {q}분기" if q else dates[idx]
+        period = f"{y}년 {q}분기" if q else periods[idx].get("title", key)
 
         return {
             "period": period,
@@ -1054,7 +1046,17 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
                   technicals: dict | None = None,
                   is_weekly: bool = False) -> tuple[str, str]:
     if not articles:
-        return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", ""
+        # 2026-09-17 수정: 뉴스가 없으면 chartAnalysis까지 통째로 ""로 반환하고
+        # 있었다(회장님 발견 - "몇몇 종목은 상승이유와 차트분석 자료가 아예
+        # 없다"). 차트 분석은 뉴스가 아니라 technicals(OHLCV)만으로 만들 수
+        # 있고, build_chart_only_prompt()가 이미 이 용도로 만들어져 있었는데
+        # (2026-08-07) 정작 매일 도는 이 함수에는 연결이 안 돼 있어, 이후
+        # patch_gainer_fields.py 등으로 매번 수동 백필해야 했다. 이제 여기서
+        # 바로 채운다.
+        chart_prompt = build_chart_only_prompt(name, ticker, date_str, change_pct, technicals, is_weekly)
+        chart_text = call_groq_with_retry(client, chart_prompt)
+        chart = parse_chart_only_response(chart_text) if chart_text else ""
+        return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", chart
     prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
     text = call_groq_with_retry(client, prompt)
     return parse_analysis_response(text)
