@@ -700,54 +700,63 @@ def fetch_stock_news(ticker: str, target_date: str, max_articles: int = 15,
     """target_date 기준 days_before일 전 ~ days_after일 후 사이의 종목 뉴스를 수집한다.
     기본은 대칭 ±5일(기존 동작 유지). 뉴스가 아예 안 잡히는 종목을 뒤늦게 다시
     확인할 때는 days_after=0, days_before=7처럼 "그날부터 앞선 1주일"만 보도록
-    호출한다(2026-08-06, 회장님 요청 - patch_gainer_fields.py --mode news 참고)."""
+    호출한다(2026-08-06, 회장님 요청 - patch_gainer_fields.py --mode news 참고).
+
+    2026-09-17 교체: 기존 소스이던 finance.naver.com/item/news_news.nhn이
+    네이버 쪽에서 완전히 종료됐다(HTTP 410 Gone, 응답 본문에 "Npay 종목뉴스
+    서비스가 자동으로 종료되었습니다"라고 명시돼 있음 - 이 세션에서 반복된
+    "네이버가 예전 페이지를 신버전으로 교체하며 조용히 깨뜨리는" 패턴과 같은
+    종류지만, 이번엔 아예 서비스 자체가 없어진 경우다). 상승률 10위 종목의
+    40%가 뉴스 0건으로 저장되는 걸 회장님이 지적해서 발견했다.
+    m.stock.naver.com/api/news/stock/{ticker} JSON API로 교체 - 기사 본문
+    요약(body)까지 이미 포함돼 있어 이전처럼 각 기사를 다시 열어
+    fetch_article_summary()로 파싱할 필요도 없어졌다."""
     articles = []
     target = datetime.strptime(target_date, "%Y-%m-%d").date()
+    lower_bound = target - timedelta(days=days_before)
+    upper_bound = target + timedelta(days=days_after)
 
     for page in range(1, 6):
-        url = (
-            f"https://finance.naver.com/item/news_news.nhn"
-            f"?code={ticker}&page={page}&sm=title_entity_id.basic"
-        )
         try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            r.encoding = "euc-kr"
-            soup = BeautifulSoup(r.text, "html.parser")
+            r = requests.get(
+                f"https://m.stock.naver.com/api/news/stock/{ticker}",
+                params={"page": page, "pageSize": 20},
+                headers=HEADERS, timeout=10,
+            )
+            r.raise_for_status()
+            groups = r.json()
         except Exception:
             break
+        if not groups:
+            break
 
-        rows = soup.select("table.type5 tr")
         found_in_range = False
-        for row in rows:
-            title_td = row.select_one("td.title")
-            date_td = row.select_one("td.date")
-            if not title_td or not date_td:
+        reached_lower_bound = False
+        for group in groups:
+            item = (group.get("items") or [None])[0]
+            if not item:
                 continue
-            a_tag = title_td.find("a")
-            if not a_tag:
-                continue
-            raw_date = date_td.get_text(strip=True)
             try:
-                art_date = datetime.strptime(raw_date[:10], "%Y.%m.%d").date()
-            except Exception:
+                art_date = datetime.strptime(item["datetime"][:8], "%Y%m%d").date()
+            except (KeyError, ValueError):
                 continue
 
-            if art_date > target + timedelta(days=days_after) or art_date < target - timedelta(days=days_before):
-                if art_date < target - timedelta(days=days_before):
-                    break
+            if art_date < lower_bound:
+                reached_lower_bound = True
+                break
+            if art_date > upper_bound:
                 continue
 
             found_in_range = True
-            title = a_tag.get_text(strip=True)
-            href = a_tag.get("href", "")
-            news_url = "https://finance.naver.com" + href if href.startswith("/") else href
-            summary = fetch_article_summary(news_url)
+            news_url = item.get("mobileNewsUrl") or ""
+            title = item.get("titleFull") or item.get("title") or ""
+            summary = re.sub(r"\s+", " ", item.get("body", "")).strip()
             articles.append({"title": title, "summary": summary, "date": str(art_date), "url": news_url})
 
             if len(articles) >= max_articles:
                 return articles
 
-        if not found_in_range:
+        if reached_lower_bound or not found_in_range:
             break
         time.sleep(0.3)
 
