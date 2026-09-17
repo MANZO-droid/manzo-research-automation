@@ -1041,6 +1041,61 @@ def parse_chart_only_response(text: str) -> str:
     return m.group(1).strip() if m else text.strip()
 
 
+def fetch_industry_peers(ticker: str, max_peers: int = 2) -> list[str]:
+    """네이버 종목 통합정보 API의 동일업종 비교 종목 목록에서 자기 자신을 뺀
+    동종업계 대표 종목명을 최대 max_peers개 반환한다(2026-09-17 추가 - 회장님
+    요청: "종목명을 직접 언급한 기사가 없어도, 업종·산업 흐름으로 상승 이유를
+    유추할 수 있지 않냐"). 업종명 자체를 주는 필드는 못 찾았지만, 동일업종
+    대표 종목명(예: 한양디지텍 -> 삼성전자·SK하이닉스)은 업종 뉴스를 검색할
+    키워드로 쓸 수 있다."""
+    try:
+        r = requests.get(
+            f"https://m.stock.naver.com/api/stock/{ticker}/integration",
+            headers=HEADERS, timeout=10,
+        )
+        r.raise_for_status()
+        peers = r.json().get("industryCompareInfo") or []
+        return [p["stockName"] for p in peers if p.get("itemCode") != ticker and p.get("stockName")][:max_peers]
+    except Exception as e:
+        print(f"    [동종업계 조회 오류] {ticker}: {e}")
+        return []
+
+
+def build_industry_context_prompt(name: str, ticker: str, date_str: str, change_pct: float,
+                                  peer_names: list[str], articles: list[dict]) -> str:
+    """종목명을 직접 언급한 기사가 하나도 없을 때, 동종업계 대표 종목명으로
+    찾은 업종 전반 뉴스를 근거로 "업종 맥락 참고"용 문단을 만든다. 반드시
+    "확인된 사실"이 아니라 "추정 맥락"임을 스스로 명시하게 강제한다 - 종목명이
+    기사에 없는데 인과관계를 단정하면 근거 없는 뇌피셜이 되기 때문(증권
+    콘텐츠 특성상 이 구분이 특히 중요)."""
+    peers_text = ", ".join(peer_names)
+    arts_text = "\n".join(
+        f"[기사 {i}] {a['title']}\n{a['summary']}"
+        for i, a in enumerate(articles, 1)
+    )
+    return f"""당신은 한국 주식 전문 애널리스트입니다.
+아래 종목은 오늘 +{change_pct:.2f}% 상승했지만, 이 종목명을 직접 언급한 기사는
+찾지 못했습니다. 대신 동종업계 대표 종목({peers_text})을 키워드로 검색한
+업종 전반 뉴스를 아래에 제공합니다.
+
+종목: {name} ({ticker})
+날짜: {date_str}
+동종업계: {peers_text}
+
+=== 업종 전반 기사 (이 종목명이 직접 언급되지 않았을 수 있음) ===
+{arts_text}
+
+[industryContext]
+위 기사들이 {name}을(를) 직접 언급하지 않는다는 점을 분명히 하면서, 이 종목이
+속한 업종에서 어떤 흐름이 있었는지만 요약하세요.
+- "{name}이(가) 이 뉴스 때문에 올랐다"처럼 확정된 인과관계로 서술하지 마세요.
+- "~업종 전반에 이런 흐름이 있었고, {name}도 같은 업종에 속해 있어 관련 가능성이
+  있다" 정도의 문장으로, 추정임을 끝까지 유지하세요.
+- 기사에 없는 계약·수주·실적 수치는 절대 지어내지 마세요.
+- 150자 이상 250자 이내로 작성하세요.
+"""
+
+
 def analyze_stock(client, name: str, ticker: str, date_str: str,
                   change_pct: float, articles: list[dict],
                   technicals: dict | None = None,
@@ -1056,7 +1111,29 @@ def analyze_stock(client, name: str, ticker: str, date_str: str,
         chart_prompt = build_chart_only_prompt(name, ticker, date_str, change_pct, technicals, is_weekly)
         chart_text = call_groq_with_retry(client, chart_prompt)
         chart = parse_chart_only_response(chart_text) if chart_text else ""
-        return f"{name}에 대한 뉴스 기사를 수집하지 못했습니다.", chart
+
+        # 2026-09-17 추가: 종목명 뉴스가 전혀 없어도, 동종업계 뉴스로 업종
+        # 맥락은 참고용으로 붙여본다(회장님 요청). "확인된 사실"인 rise_reason
+        # 원문과는 명확히 분리해서, 별도 라벨을 붙인 문단으로만 덧붙인다.
+        rise_reason = f"{name}에 대한 뉴스 기사를 수집하지 못했습니다."
+        peer_names = fetch_industry_peers(ticker)
+        if peer_names:
+            industry_articles = []
+            for peer in peer_names:
+                industry_articles.extend(
+                    fetch_naver_general_news(peer, date_str, max_articles=5, days_before=3, days_after=0)
+                )
+            if industry_articles:
+                prompt = build_industry_context_prompt(name, ticker, date_str, change_pct,
+                                                       peer_names, industry_articles[:8])
+                text = call_groq_with_retry(client, prompt)
+                context = ""
+                if text:
+                    m = re.search(r"\[industryContext\](.*?)$", text, re.DOTALL)
+                    context = m.group(1).strip() if m else text.strip()
+                if context:
+                    rise_reason += f"\n\n[업종 맥락 참고 - {name}을(를) 직접 언급한 기사는 없음] {context}"
+        return rise_reason, chart
     prompt = build_analysis_prompt(name, ticker, date_str, change_pct, articles, technicals, is_weekly)
     text = call_groq_with_retry(client, prompt)
     return parse_analysis_response(text)
