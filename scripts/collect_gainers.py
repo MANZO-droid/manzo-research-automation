@@ -636,7 +636,24 @@ def calc_trend(ma5: float | None, ma20: float | None, ma60: float | None,
     return "횡보"
 
 
-def calc_technicals(ohlcv: list[dict], close: int, volume: int) -> dict:
+def calc_w52(ohlcv_long: list[dict], date_str: str) -> tuple[int, int] | None:
+    """date_str 기준 직전 365일(달력) 고가/저가. 2026-09-26 신설(회장님 지적 - "52주
+    고가/저가 조회가 안 된다", 전수조사로 확인): 예전엔 일봉 200개(약 9.5개월)의
+    high/low 극값을 "52주"로 썼고, 거래정지·데이터 결측일의 high/low=0이 그대로
+    섞여 52주 저가가 0으로 저장된 행이 다수였다. 고가/저가가 0인 일봉은 종가로
+    대체한다(값을 지어내지 않고 실제 관측된 종가만 사용). 구간에 데이터가 없으면
+    None(호출부가 기존 값을 유지)."""
+    lim = (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=365)).strftime("%Y-%m-%d")
+    win = [x for x in ohlcv_long if lim < x["date"] <= date_str and x["close"] > 0]
+    if not win:
+        return None
+    hi = max(x["high"] if x["high"] > 0 else x["close"] for x in win)
+    lo = min(x["low"] if x["low"] > 0 else x["close"] for x in win)
+    return hi, lo
+
+
+def calc_technicals(ohlcv: list[dict], close: int, volume: int,
+                    ohlcv_52w: list[dict] | None = None, date_str: str | None = None) -> dict:
     closes = [c["close"] for c in ohlcv]
     volumes = [c["volume"] for c in ohlcv]
     highs = [c["high"] for c in ohlcv]
@@ -647,8 +664,14 @@ def calc_technicals(ohlcv: list[dict], close: int, volume: int) -> dict:
     ma60 = calc_ma(closes, 60)
     ma120 = calc_ma(closes, 120)
 
-    w52_high = max(highs[-252:]) if len(highs) >= 52 else (max(highs) if highs else close)
-    w52_low = min(lows[-252:]) if len(lows) >= 52 else (min(lows) if lows else close)
+    w52 = calc_w52(ohlcv_52w, date_str) if (ohlcv_52w and date_str) else None
+    if w52:
+        w52_high, w52_low = w52
+    else:
+        pos_h = [h for h in highs[-252:] if h > 0]
+        pos_l = [l for l in lows[-252:] if l > 0]
+        w52_high = max(pos_h) if pos_h else close
+        w52_low = min(pos_l) if pos_l else close
 
     vol_avg20 = int(sum(volumes[-20:]) / min(20, len(volumes))) if volumes else 0
     vol_ratio = round(volume / vol_avg20, 1) if vol_avg20 else 0
@@ -1378,9 +1401,10 @@ def run_daily(client, date_str: str):
 
         # OHLCV (200일 수집 - 최근 60일 캔들 저장 + 그 60일 전체 구간에서
         # ma120선이 끊기지 않게 하려면 앞쪽 여유분 120일 이상이 더 필요함)
-        ohlcv = fetch_ohlcv(ticker, count=200)
+        ohlcv = fetch_ohlcv(ticker, count=400)  # 52주(365일) 계산용으로 넉넉히 - 다른 지표는 최근 200개만 사용
         g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv  # 최근 60일만 저장
-        g["technicals"] = calc_technicals(ohlcv, g["close"], g.get("volume", 0))
+        g["technicals"] = calc_technicals(ohlcv[-200:], g["close"], g.get("volume", 0),
+                                          ohlcv_52w=ohlcv, date_str=date_str)
         g["technicals"]["maLines"] = calc_ma_lines(ohlcv, window=60)
         g["w52High"] = g["technicals"]["w52High"]
         g["w52Low"] = g["technicals"]["w52Low"]
@@ -1423,9 +1447,10 @@ def run_weekly(client, date_str: str, from_date: str, to_date: str):
     for g in gainers:
         name, ticker = g["name"], g["ticker"]
         print(f"\n  [{g['rank']}] {name} ({ticker}) 주간 +{g['changePct']:.2f}%")
-        ohlcv = fetch_ohlcv(ticker, count=200)
+        ohlcv = fetch_ohlcv(ticker, count=400)  # 52주(365일) 계산용으로 넉넉히 - 다른 지표는 최근 200개만 사용
         g["ohlcv"] = ohlcv[-60:] if len(ohlcv) > 60 else ohlcv
-        g["technicals"] = calc_technicals(ohlcv, g["close"], g.get("volume", 0))
+        g["technicals"] = calc_technicals(ohlcv[-200:], g["close"], g.get("volume", 0),
+                                          ohlcv_52w=ohlcv, date_str=date_str)
         g["technicals"]["maLines"] = calc_ma_lines(ohlcv, window=60)
         g["w52High"] = g["technicals"]["w52High"]
         g["w52Low"] = g["technicals"]["w52Low"]
