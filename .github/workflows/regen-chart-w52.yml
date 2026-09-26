@@ -1,0 +1,36 @@
+name: "52주 교정 후 차트분석 재생성 (자동 이어하기)"
+
+# 2026-09-27: 52주 고가/저가 계산 교정(backfill_w52.py) 후, 옛 값을 인용한 차트분석
+# 312행을 재생성하는 중 Groq 무료 할당량이 소진돼 158행이 남았다. 이어서 처리한다.
+# technicals.w52ChartVersion 마커로 멱등 - 끝나면 조회만 하고 아무 것도 안 하므로 무해하다.
+#
+# 정기 수집(gainers-daily, UTC 07:00~)의 Groq 할당량을 빼앗지 않도록 할당량이 리셋되는
+# UTC 00:30에, 15분 예산으로 소량씩만 처리한다(하루 약 40행 → 4일 안팎).
+# 다 끝나면(로그에 "재생성 대상 0") 이 파일을 삭제하면 된다.
+
+on:
+  schedule:
+    - cron: "30 0 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: regen-chart-w52
+  cancel-in-progress: false
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests beautifulsoup4 groq google-generativeai
+      - name: 차트분석 재생성 (15분 예산)
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u scripts/regen_chart_w52.py --minutes 15
