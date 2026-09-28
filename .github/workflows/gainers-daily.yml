@@ -20,6 +20,8 @@ name: "상승률 상위 10위 자동 수집"
 #                                   2026-08-01부로 무료 티어 유지를 위해 Anthropic Claude에서 교체됨
 #   - SUPABASE_URL                : 사이트가 쓰는 것과 동일한 Supabase 프로젝트 URL
 #   - SUPABASE_SERVICE_ROLE_KEY   : RLS를 우회해 쓰기 위한 서버 전용 키 (사이트 저장소 .env.local과 동일 값)
+#   - KRX_OPENAPI_KEY             : 2026-09-29 추가 - 네이버 API가 실패할 때 KRX 정식 시세로
+#                                   자동 대체하기 위해 필요(collect_gainers.fetch_krx_day_prices 참고)
 #
 # (더 이상 필요하지 않음: SITE_REPO_PAT — 사이트 저장소에 커밋할 필요가 없어져서 제거했습니다.)
 
@@ -56,6 +58,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
           python -u scripts/collect_gainers.py

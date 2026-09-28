@@ -34,36 +34,22 @@ from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, calc_ma_lines, fetch_stock_news,
     fetch_stock_news_staged, news_to_dicts,
     fetch_financials, build_analysis_prompt, parse_analysis_response, fetch_investor_netbuy,
-    fetch_prev_volume_stocks,
+    fetch_prev_volume_stocks, fetch_krx_bydd_all,
     save_raw_candidates, save_to_supabase, get_weekly_top10, KST, has_language_issue,
 )
 from krx_calendar import is_trading_day  # noqa: E402
 
+_MARKET_CODE = {"stk": "KOSPI", "ksq": "KOSDAQ"}
+
 
 def fetch_krx_day(base_dd: str, market: str) -> list[dict]:
-    """market: 'stk'(KOSPI) 또는 'ksq'(KOSDAQ). 그날 전종목 시세를 반환한다."""
-    key = os.environ["KRX_OPENAPI_KEY"]
-    url = f"https://data-dbg.krx.co.kr/svc/apis/sto/{market}_bydd_trd"
-    r = requests.get(url, headers={"AUTH_KEY": key}, params={"basDd": base_dd}, timeout=30)
-    r.raise_for_status()
-    rows = r.json().get("OutBlock_1", [])
-    out = []
-    for row in rows:
-        try:
-            ticker = row["ISU_CD"]
-            if not (len(ticker) == 6 and ticker.isdigit()):
-                continue
-            out.append({
-                "ticker": ticker,
-                "name": row["ISU_NM"],
-                "close": int(row["TDD_CLSPRC"]),
-                "changePct": float(row["FLUC_RT"]),
-                "tradeAmount": int(row["ACC_TRDVAL"]),
-                "volume": int(row["ACC_TRDVOL"]),
-            })
-        except (KeyError, ValueError):
-            continue
-    return out
+    """market: 'stk'(KOSPI) 또는 'ksq'(KOSDAQ). 그날 전종목 시세를 반환한다.
+
+    2026-09-29: 실제 HTTP 호출은 collect_gainers.fetch_krx_bydd_all로 옮겼다
+    (라이브 자동화의 네이버 장애 대체소스도 같은 함수를 쓰게 되면서 두 파일에
+    같은 코드가 복붙돼 있던 걸 하나로 합침). 이 함수는 시장 코드 표기만
+    맞춰주는 얇은 래퍼로 남긴다(기존 호출부를 안 바꾸려고)."""
+    return fetch_krx_bydd_all(base_dd, _MARKET_CODE[market])
 
 
 def build_daily_top10(all_stocks: list[dict], base_dd: str) -> list[dict]:
@@ -296,12 +282,39 @@ def main():
         sys.exit(1)
 
     print(f"백필 대상 날짜({len(dates)}개): {dates}")
+    switched = False  # 2026-09-29: provider 자동 전환은 한 번만 시도한다(둘 다 소진되면 진짜 중단)
     for date_str in dates:
         try:
             backfill_date(client, date_str, analyze_fn=analyze_fn)
         except quota_exc as e:
-            print(f"\n[중단] {e} (이미 처리된 날짜까지는 저장됨)")
-            sys.exit(1)
+            other = "groq" if args.provider == "gemini" else "gemini"
+            other_key = "GROQ_API_KEY" if other == "groq" else "GEMINI_API_KEY"
+            if switched or not os.environ.get(other_key):
+                print(f"\n[중단] {e} (이미 처리된 날짜까지는 저장됨)")
+                sys.exit(1)
+            # 2026-09-29 추가: 8/30 백필 중 Gemini(일일 20회) → Groq → 더 작은
+            # Groq 모델로 사람이 직접 세 번 갈아탄 적이 있다(회장님과 함께
+            # 겪은 일) - 그 수동 전환을 자동화한다. 현재 provider의 할당량이
+            # 다 소진되면 남은 날짜는 다른 provider로 이어서 진행한다.
+            print(f"\n[대체 provider 전환] {args.provider} 할당량 소진 - {other}로 전환해 계속합니다")
+            args.provider = other
+            switched = True
+            if other == "gemini":
+                genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+                client = genai.GenerativeModel("gemini-2.5-flash")
+                analyze_fn = analyze_stock_gemini
+                quota_exc = GeminiQuotaExhausted
+            else:
+                from groq import Groq
+                from collect_gainers import analyze_stock, GroqQuotaExhausted as _GroqQuotaExhausted
+                client = Groq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
+                analyze_fn = analyze_stock
+                quota_exc = _GroqQuotaExhausted
+            try:
+                backfill_date(client, date_str, analyze_fn=analyze_fn)
+            except quota_exc as e2:
+                print(f"\n[중단] 전환한 provider({other})도 소진됨: {e2}")
+                sys.exit(1)
 
     print("\n전체 완료!")
 

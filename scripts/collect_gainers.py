@@ -50,6 +50,11 @@ HEADERS = {
     "Referer": "https://finance.naver.com/",
 }
 GROQ_MODEL = "openai/gpt-oss-120b"
+# 2026-09-29 추가: Groq 무료 티어는 모델별로 별도 일일 토큰 한도(TPD)를 두는데,
+# 8/30 백필 작업 중 120b 모델의 TPD(20만 토큰)를 다 써서 전체가 멈춘 적이 있다
+# (사람이 직접 20b로 바꿔 마무리함). 같은 상황이 정규 자동화·repair_issues.py
+# 양쪽에서 또 벌어지면 여기서 자동으로 한 단계씩 내려가며 시도한다.
+GROQ_FALLBACK_MODELS = ["openai/gpt-oss-20b"]
 # 2026-08-17: llama-3.3-70b-versatile이 Groq에서 완전히 단종됨(404
 # model_not_found - 08-15까지는 정상 동작 확인, 그 사이 어느 시점에
 # 단종된 것으로 추정). openai/gpt-oss-120b로 교체 - reasoning 모델이라
@@ -131,8 +136,58 @@ def _fetch_admin_issue_list() -> list[dict]:
                 result.append({"name": name, "date": date.strip(), "reason": reason.strip()})
     except Exception as e:
         print(f"  [관리종목 목록 조회 오류] {e}")
+
+    # 2026-09-29 추가: KIND 접속 자체가 막히거나(네트워크·차단) 페이지 구조가 또
+    # 바뀌면 result가 빈 리스트가 되는데, 그걸 그대로 쓰면 "관리종목 없음"으로
+    # 오인되어 이 필터가 또 조용히 무력화된다(8/14~8/19 SHD 사고와 같은 유형).
+    # GitHub Actions는 매번 새 컨테이너라 로컬 캐시가 못 버티므로, Supabase에
+    # 마지막 성공 목록을 저장해두고 실패 시 그걸로 대체한다(값을 지어내지
+    # 않고, "며칠 전 목록"이라는 걸 로그로 명확히 남긴다).
+    if len(result) >= 50:  # 정상 응답이면 항상 100건 이상 나온다 - 50 미만이면 의심
+        _save_admin_issue_cache(result)
+    else:
+        cached, fetched_at = _load_admin_issue_cache()
+        if cached:
+            print(f"  [관리종목 목록 대체] KIND 조회 실패 - {fetched_at} 캐시({len(cached)}건)로 대체합니다")
+            result = cached
+        else:
+            print("  [관리종목 목록 대체 실패] 캐시도 없습니다 - 이번 실행은 관리종목 필터가 비활성 상태입니다")
+
     _ADMIN_ISSUE_LIST_CACHE = result
     return result
+
+
+def _save_admin_issue_cache(data: list[dict]):
+    url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        return
+    try:
+        requests.post(
+            f"{url}/rest/v1/admin_issue_cache?on_conflict=id",
+            headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                     "Prefer": "resolution=merge-duplicates,return=minimal"},
+            json=[{"id": 1, "data": data, "fetched_at": datetime.now(KST).isoformat()}],
+            timeout=15,
+        )
+    except Exception as e:
+        print(f"  [관리종목 캐시 저장 오류] {e}")
+
+
+def _load_admin_issue_cache() -> tuple[list[dict], str | None]:
+    url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        return [], None
+    try:
+        r = requests.get(
+            f"{url}/rest/v1/admin_issue_cache?id=eq.1&select=data,fetched_at",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=15,
+        )
+        rows = r.json()
+        if rows:
+            return rows[0]["data"], rows[0]["fetched_at"]
+    except Exception as e:
+        print(f"  [관리종목 캐시 조회 오류] {e}")
+    return [], None
 
 
 def _get_admin_issue_tickers(base_dd: str) -> dict:
@@ -251,7 +306,95 @@ def fetch_top_gainers(market: str, top_n: int = 40) -> list[dict]:
             page += 1
     except Exception as e:
         print(f"  [수집 오류] {market}: {e}")
+
+    if not stocks:
+        print(f"  [대체소스] 네이버 API 응답이 비어있어 KRX 정식 시세로 대체합니다: {market}")
+        stocks = fetch_krx_day_prices(datetime.now(KST).strftime("%Y%m%d"), market, top_n=top_n)
     return stocks
+
+
+def fetch_krx_day_prices(base_dd: str, market: str, top_n: int = 40) -> list[dict]:
+    """KRX 정보데이터시스템 Open API(KRX_OPENAPI_KEY)의 전종목 시세에서 등락률
+    상위 top_n개를 반환한다. market: "KOSPI" 또는 "KOSDAQ".
+
+    2026-09-29 추가 - 네이버가 올해만 세 번(08-17 상한가 누락, 09-05 URL 404,
+    09-12 SPA 전면 개편) 조용히·시끄럽게 데이터를 못 주는 사고를 냈다. 지금은
+    실패 시 RuntimeError로 멈추고 다음 날 사람이 백필해야 하는데, 이 함수는
+    그 백필과 완전히 같은 방식(KRX 공식 전종목 시세)을 네이버 실패 그 자리에서
+    자동으로 써서 그날 리포트 자체가 안 끊기게 한다. KRX_OPENAPI_KEY가 없거나
+    이 API마저 실패하면 빈 리스트를 반환해 호출부가 기존처럼 실패 처리하게
+    둔다(값을 지어내지 않는다). backfill_krx_historical.py의 백필 로직도
+    이 함수를 그대로 재사용한다(중복 구현 방지).
+
+    ⚠ 확인된 한계(2026-09-29): 이 엔드포인트(data-dbg.krx.co.kr, 무료/디버그
+    등급으로 추정)는 최신 며칠치 데이터가 아직 안 올라와 있을 때가 있다
+    (직접 확인: 9/22·9/23은 있었는데 9/24~9/28은 한동안 비어 있었음). 즉
+    "오늘 당일" 대체소스로는 못 미더울 수 있어 최종 안전망이 아니라
+    1차 시도로만 쓴다 - 이마저 비면 호출부가 기존처럼 실패 처리하고,
+    repair_issues.py가 이후 며칠에 걸쳐 재시도한다(KRX 쪽 데이터가
+    올라오면 그때 자동으로 채워짐)."""
+    candidates = fetch_krx_bydd_all(base_dd, market)
+    candidates.sort(key=lambda x: x["changePct"], reverse=True)
+    return candidates[:top_n]
+
+
+def fetch_krx_bydd_all(base_dd: str, market: str) -> list[dict]:
+    """KRX Open API 전종목 시세를 정렬·제한 없이 그대로 반환하는 저수준 함수.
+    market: "KOSPI" 또는 "KOSDAQ". fetch_krx_day_prices(등락률 상위)와
+    fetch_krx_day_all(거래대금 계산용), backfill_krx_historical.py가 모두
+    이 함수 하나로 통일해서 쓴다(2026-09-29, 이전엔 두 파일에 같은 HTTP 호출이
+    복붙돼 있었다)."""
+    key = os.environ.get("KRX_OPENAPI_KEY")
+    if not key:
+        print(f"  [대체소스 실패] KRX_OPENAPI_KEY가 없습니다 - {market} 대체 불가")
+        return []
+    api_market = "stk" if market == "KOSPI" else "ksq"
+    try:
+        r = requests.get(
+            f"https://data-dbg.krx.co.kr/svc/apis/sto/{api_market}_bydd_trd",
+            headers={"AUTH_KEY": key}, params={"basDd": base_dd}, timeout=30,
+        )
+        r.raise_for_status()
+        rows = r.json().get("OutBlock_1", [])
+    except Exception as e:
+        print(f"  [대체소스 실패] KRX Open API {market} {base_dd}: {e}")
+        return []
+    if not rows:
+        print(f"  [대체소스 실패] KRX Open API {market} {base_dd}: 데이터 없음(휴장일이거나 아직 미발표)")
+        return []
+
+    out = []
+    for row in rows:
+        try:
+            # 이 엔드포인트(_bydd_trd)는 ISU_CD 필드가 이미 6자리 단축코드다
+            # (종목기본정보 API의 ISU_CD와 달리 12자리 ISIN이 아님 - 2026-09-29
+            # 직접 확인, 950260/인제니아로 검증됨).
+            ticker = row["ISU_CD"]
+            if not (len(ticker) == 6 and ticker.isdigit()):
+                continue
+            out.append({
+                "ticker": ticker,
+                "name": row["ISU_NM"],
+                "close": int(row["TDD_CLSPRC"]),
+                "changePct": float(row["FLUC_RT"]),
+                "volume": int(row["ACC_TRDVOL"]),
+                "tradeAmount": int(row["ACC_TRDVAL"]),
+                "priceChange": int(row.get("CMPPREVDD_PRC") or 0),
+            })
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
+def fetch_krx_day_all(base_dd: str) -> list[dict]:
+    """KOSPI+KOSDAQ 전종목 시세를 합쳐 반환한다(거래대금 대체소스용,
+    top_n 제한 없음). fetch_krx_day_prices와 같은 API를 쓰되 필터링 없이
+    전량을 준다 - 거래대금 상위는 등락률이 아니라 거래대금으로 다시
+    정렬해야 하므로 상위 몇 개만 잘라오면 안 된다."""
+    all_stocks = []
+    for market in ("KOSPI", "KOSDAQ"):
+        all_stocks.extend(fetch_krx_bydd_all(base_dd, market))
+    return all_stocks
 
 
 def save_raw_candidates(date_str: str, kospi: list[dict], kosdaq: list[dict]):
@@ -947,20 +1090,22 @@ def has_language_issue(text: str) -> bool:
     return bool(_FOREIGN_SCRIPT_RE.search(text))
 
 
-def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
+def _call_groq_model(client, model: str, prompt: str, max_retries: int) -> str | None:
+    """model 하나로 재시도까지 시도한다. 재시도 소진 후에도 안 풀리면 None
+    (호출부가 다음 모델로 넘어가거나 최종 실패 처리하게)."""
     wait = 60
     last_text = ""
     for attempt in range(max_retries):
         try:
             resp = client.chat.completions.create(
-                model=GROQ_MODEL,
+                model=model,
                 max_tokens=3000,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = resp.choices[0].message.content or ""
             if has_language_issue(text):
                 last_text = text
-                print(f"    [Groq 언어 오염] 일본어 감지, 재시도 ({attempt+1}/{max_retries})...")
+                print(f"    [Groq 언어 오염] {model} 일본어 감지, 재시도 ({attempt+1}/{max_retries})...")
                 continue
             return text
         except RateLimitError as e:
@@ -970,21 +1115,37 @@ def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
             except Exception:
                 pass
             wait_sec = min(int(float(retry_after)) + 5, 120) if retry_after else wait
-            print(f"    [Groq 429] {wait_sec}초 대기 후 재시도 ({attempt+1}/{max_retries})...")
+            print(f"    [Groq 429] {model} {wait_sec}초 대기 후 재시도 ({attempt+1}/{max_retries})...")
             time.sleep(wait_sec)
             wait = min(wait * 2, 120)
         except APIStatusError as e:
-            print(f"    [Groq 오류] {e}")
+            print(f"    [Groq 오류] {model}: {e}")
             return ""
     if last_text:
         # 언어 오염이 재시도로도 안 풀림 - 할당량 문제가 아니므로 중단시키지 않고
         # 마지막 응답을 그대로 반환한다(사후 검사로 다시 잡아낼 수 있음).
-        print("    [Groq 언어 오염] 재시도 소진 - 마지막 응답을 그대로 사용")
+        print(f"    [Groq 언어 오염] {model} 재시도 소진 - 마지막 응답을 그대로 사용")
         return last_text
+    return None
+
+
+def call_groq_with_retry(client, prompt: str, max_retries: int = 4) -> str:
+    """기본 모델(GROQ_MODEL)로 시도하고, 재시도까지 다 소진하면(대개 무료 티어
+    일일 토큰 한도 소진) GROQ_FALLBACK_MODELS를 순서대로 한 번씩 더 시도한다
+    (2026-09-29 추가 - 8/30 백필 중 120b 모델 TPD를 다 써서 전체가 멈췄던 걸
+    사람이 20b로 수동 전환해 마무리한 적이 있어, 그 과정을 자동화했다). 모든
+    모델이 다 실패해야만 GroqQuotaExhausted를 던진다."""
+    for model in [GROQ_MODEL] + GROQ_FALLBACK_MODELS:
+        text = _call_groq_model(client, model, prompt, max_retries)
+        if text is not None:
+            if model != GROQ_MODEL:
+                print(f"    [Groq 대체모델] {GROQ_MODEL} 소진 - {model}로 계속 진행")
+            return text
     raise GroqQuotaExhausted(
-        f"Groq 429(rate_limit_error)가 {max_retries}회 재시도 후에도 풀리지 않았습니다. "
-        "무료 할당량이 소진된 것으로 보여 자동 실행을 중단합니다. 할당량 회복 후 사람이 "
-        "직접(workflow_dispatch 등으로) 다시 실행해야 합니다."
+        f"Groq 429(rate_limit_error)가 기본 모델과 대체 모델({', '.join(GROQ_FALLBACK_MODELS)}) "
+        f"모두에서 {max_retries}회 재시도 후에도 풀리지 않았습니다. 무료 할당량이 소진된 것으로 "
+        "보여 자동 실행을 중단합니다. 할당량 회복 후 사람이 직접(workflow_dispatch 등으로) "
+        "다시 실행해야 합니다."
     )
 
 
@@ -1342,6 +1503,12 @@ def fetch_volume_stocks(date_str: str) -> list[dict]:
             })
     except Exception as e:
         print(f"  [거래대금 수집 오류] {e}")
+
+    if not stocks:
+        print("  [대체소스] 네이버 API 응답이 비어있어 KRX 정식 시세로 대체합니다: 거래대금")
+        stocks = fetch_krx_day_all(date_str.replace("-", ""))
+        for s in stocks:
+            s["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={s['ticker']}"
 
     # 거래대금 내림차순 상위 10개
     top10 = sorted(stocks, key=lambda x: x["tradeAmount"], reverse=True)[:10]
