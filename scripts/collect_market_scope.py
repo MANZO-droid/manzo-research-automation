@@ -70,12 +70,44 @@ def kst_day_window(report_date):
     return start_utc, end_utc
 
 
-def range_label(report_date):
-    d = datetime.strptime(report_date, "%Y-%m-%d")
-    prev = d - timedelta(days=1)
+def range_label_from_window(start_utc, end_utc):
+    """실제로 수집한 구간(start_utc~end_utc)을 KST로 바꿔 표시용 문구를 만든다.
+    2026-09-28 수정: 예전엔 report_date에서 "항상 전일 하루치"라고 가정해 문구를
+    만들었는데, find_last_report_end()로 구간을 늘린 뒤에는 실제 시작 시각과
+    안 맞을 수 있어 실제 구간을 그대로 반영한다."""
+    kst = timezone(timedelta(hours=9))
+    s = start_utc.astimezone(kst)
+    e = (end_utc - timedelta(minutes=1)).astimezone(kst)
     weekday = "월화수목금토일"
-    return (f"{prev.strftime('%Y-%m-%d')}({weekday[prev.weekday()]}) 05:00 ~ "
-            f"{d.strftime('%Y-%m-%d')}({weekday[d.weekday()]}) 04:59 KST")
+    return (f"{s.strftime('%Y-%m-%d')}({weekday[s.weekday()]}) {s.strftime('%H:%M')} ~ "
+            f"{e.strftime('%Y-%m-%d')}({weekday[e.weekday()]}) {e.strftime('%H:%M')} KST")
+
+
+def find_last_report_end(before_date: str):
+    """market_scope_reports에서 before_date보다 이전인 가장 최근 report_date를 찾아,
+    그 리포트가 이미 커버한 마지막 시각(그 리포트의 report_date 04:59 KST, UTC)을
+    반환한다. 없으면 None.
+
+    2026-09-28 추가(회장님 발견 - "23일 새벽부터 28일 새벽까지 분석해야 하는데
+    왜 3개밖에 없냐"). 예전엔 report_date와 무관하게 항상 "전일 05:00~당일
+    04:59"라는 고정 24시간만 수집했다. 연휴로 며칠 건너뛴 뒤 첫 개장일에
+    실행되면, 그 24시간 이전(휴장 기간 내내 쌓인 텔레그램 게시물)은 그냥
+    누락됐다 - 매일 실행되면 문제없이 맞물리는 걸 전제로 한 설계라 휴장
+    공백을 못 버텼다."""
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    r = requests.get(
+        f"{url}/rest/v1/market_scope_reports",
+        params={"select": "report_date", "report_date": f"lt.{before_date}",
+                "order": "report_date.desc", "limit": 1},
+        headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=15,
+    )
+    r.raise_for_status()
+    rows = r.json()
+    if not rows:
+        return None
+    _, prev_end = kst_day_window(rows[0]["report_date"])
+    return prev_end
 
 
 def parse_page(html):
@@ -122,11 +154,11 @@ def scrape_channel(channel, window_start, window_end, max_pages=40):
     return [m for m in all_msgs if window_start <= datetime.fromisoformat(m["datetime"]) < window_end]
 
 
-def scrape_window(window_start, window_end):
+def scrape_window(window_start, window_end, max_pages=40):
     by_channel = {}
     for ch in CHANNELS:
         print(f"  [{ch}] 수집 중...")
-        msgs = scrape_channel(ch, window_start, window_end)
+        msgs = scrape_channel(ch, window_start, window_end, max_pages=max_pages)
         by_channel[ch] = msgs
         print(f"    -> {len(msgs)}개")
     return by_channel
@@ -224,10 +256,22 @@ def build_items(stock_stats, issue_stats, msg_index, max_items=15):
     return items
 
 
-def build_report(report_date, gemini_model):
+def build_report(report_date, gemini_model, extend_gap: bool = True):
+    """extend_gap=True(무인 자동 실행 기본값): 직전에 실제로 저장된 리포트
+    이후 공백(휴장 연휴 등)이 있으면 수집 시작 시각을 그만큼 앞당긴다.
+    --date/--from-to로 특정 날짜를 재실행할 때는 그 날짜의 원래 24시간만
+    다시 보도록 extend_gap=False로 호출한다(재실행마다 매번 구간이
+    달라지면 재현이 안 되기 때문)."""
     start, end = kst_day_window(report_date)
+    if extend_gap:
+        prev_end = find_last_report_end(report_date)
+        if prev_end and prev_end < start:
+            print(f"  [공백 감지] 직전 저장된 리포트 이후 공백 발견 - 수집 시작을 "
+                  f"{start.isoformat()} -> {prev_end.isoformat()}(UTC)로 확장")
+            start = prev_end
+    span_days = max(1, -(-(end - start).days // 1) + 1)
     print(f"\n=== {report_date} 리포트 생성 (수집 구간: {start.isoformat()} ~ {end.isoformat()} UTC) ===")
-    by_channel = scrape_window(start, end)
+    by_channel = scrape_window(start, end, max_pages=40 * span_days)
     candidates = collect_candidate_names(by_channel)
     stock_stats, msg_index = build_stock_stats(by_channel, candidates)
     print(f"  메시지 {len(msg_index)}개, 종목명 후보 {len(candidates)}개")
@@ -238,7 +282,7 @@ def build_report(report_date, gemini_model):
         print(f"    {it['rank']}. {it['name']} ({it['type']}) mention={it['mention']} channel={it['channel']} score={it['score']}")
     return {
         "report_date": report_date,
-        "range_label": range_label(report_date),
+        "range_label": range_label_from_window(start, end),
         "message_count": len(msg_index),
         "channel_count": len(CHANNELS),
         "items": items,
@@ -318,8 +362,11 @@ def main():
         # (마찬가지로 KST 기준 - 위 today 계산과 동일한 이유)
         dates = [datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")]
 
+    # --date/--from-to로 특정 날짜(들)를 명시하면 그날의 원래 24시간만 재현한다
+    # (자동 실행 중 공백 확장 없이, 지정한 날짜 그대로 재실행/백필하기 위함).
+    unattended = not args.date and not (args.date_from and args.date_to)
     for report_date in dates:
-        report = build_report(report_date, gemini_model)
+        report = build_report(report_date, gemini_model, extend_gap=unattended)
         save_report_to_supabase(report)
 
     print(f"\n완료: {len(dates)}개 날짜 저장")
