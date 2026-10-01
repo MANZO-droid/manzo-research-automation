@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install requests beautifulsoup4 groq
+      - run: pip install requests beautifulsoup4 groq google-generativeai
 
       - name: 이슈 감지·자동 수리
         env:
