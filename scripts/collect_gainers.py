@@ -1772,7 +1772,12 @@ def main():
     week_start = week_end = None
 
     if unattended:
-        date_str = datetime.now(KST).strftime("%Y-%m-%d")
+        now_kst = datetime.now(KST)
+        if (now_kst.hour, now_kst.minute) < (15, 30):
+            print(f"[skip] {now_kst:%Y-%m-%d %H:%M} KST는 장 마감(15:30) 전입니다. 예약 실행이 "
+                  "자정 전후로 밀려 들어오면 전날 시세를 당일 날짜로 잘못 저장하므로 중단합니다.")
+            return
+        date_str = now_kst.strftime("%Y-%m-%d")
         trigger = get_weekly_report_trigger(date_str)
         if not trigger["shouldRun"]:
             print(f"[skip] {date_str}: KRX 거래일 캘린더 기준 오늘은 발행일이 아닙니다 "
