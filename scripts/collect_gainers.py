@@ -1540,15 +1540,28 @@ def run_daily(client, date_str: str):
 
     # 원본 후보 저장 (이번 주 토요일 주간 리포트가 나중에 실제 값으로 복리
     # 계산할 수 있게 - get_weekly_top10() 참고). daily 리포트 자체와는 무관.
-    # 2026-08-17: 상한가 종목이 sise_rise에 안 잡히는 버그 수정과 함께,
-    # 주간 리포트 계산용 원본에도 상한가 종목을 포함시킨다(안 그러면
-    # 이 raw_top_candidates를 읽는 주간 복리 계산도 계속 틀리게 됨).
-    kospi_raw = fetch_top_gainers("KOSPI", top_n=100)
-    kosdaq_raw = fetch_top_gainers("KOSDAQ", top_n=100)
+    #
+    # 2026-10-13 전종목 저장으로 교체:
+    #   기존 fetch_top_gainers(top_n=100)은 당일 상승률 상위 100개만 저장했다.
+    #   하루에 +3%씩 꾸준히 오른 종목은 한 번도 top100에 안 들어가도 주간 누적
+    #   +16%가 될 수 있는데, raw_top_candidates에 아예 없어 주간 계산에서 통째로
+    #   빠지는 구조적 누락이 있었다. KRX Open API 전종목 시세로 교체해 이 문제를
+    #   해결한다. KRX API 실패(키 없음·응답 없음) 시에는 네이버 top100으로 폴백
+    #   해 기존 동작을 유지한다.
+    base_dd = date_str.replace("-", "")
+    kospi_raw = fetch_krx_bydd_all(base_dd, "KOSPI")
+    kosdaq_raw = fetch_krx_bydd_all(base_dd, "KOSDAQ")
+    if not kospi_raw or not kosdaq_raw:
+        print(
+            f"  [경고] KRX 전종목 수집 실패(KOSPI {len(kospi_raw)}개, KOSDAQ {len(kosdaq_raw)}개) - "
+            "네이버 상승률 상위 100개로 폴백합니다."
+        )
+        kospi_raw = fetch_top_gainers("KOSPI", top_n=100)
+        kosdaq_raw = fetch_top_gainers("KOSDAQ", top_n=100)
     if not kospi_raw or not kosdaq_raw:
         raise RuntimeError(
             f"원본 후보 수집 실패(KOSPI {len(kospi_raw)}개, KOSDAQ {len(kosdaq_raw)}개) - "
-            "네이버 API 응답이 비어있음. 조용히 빈 데이터를 저장하는 대신 실행을 실패 처리한다."
+            "KRX API와 네이버 API 모두 응답이 비어있음."
         )
     save_raw_candidates(date_str, kospi_raw, kosdaq_raw)
 
