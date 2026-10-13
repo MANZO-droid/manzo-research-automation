@@ -403,7 +403,7 @@ def save_raw_candidates(date_str: str, kospi: list[dict], kosdaq: list[dict]):
     등락률을 읽어 복리 계산할 수 있게 하기 위함(2026-08-01 버그 수정 - 예전엔
     '오늘' 데이터를 5번 반복 조회해 복리 계산하는 바람에 수치가 틀렸었다)."""
     now = datetime.now(KST).isoformat()
-    rows = [
+    all_rows = [
         {
             "trade_date": date_str, "market": "kospi", "ticker": s["ticker"], "name": s["name"],
             "close": s["close"], "change_pct": s["changePct"], "trade_amount": s.get("tradeAmount"),
@@ -418,6 +418,15 @@ def save_raw_candidates(date_str: str, kospi: list[dict], kosdaq: list[dict]):
         }
         for s in kosdaq
     ]
+    # (trade_date, ticker) 중복 제거 — 같은 ticker가 KOSPI·KOSDAQ 양쪽에 존재하면
+    # PostgreSQL upsert가 동일 행을 두 번 업데이트하려다 21000 오류를 낸다.
+    seen: set = set()
+    rows = []
+    for row in all_rows:
+        key = (row["trade_date"], row["ticker"])
+        if key not in seen:
+            seen.add(key)
+            rows.append(row)
     supabase_upsert("raw_top_candidates", rows, "trade_date,ticker")
 
 
