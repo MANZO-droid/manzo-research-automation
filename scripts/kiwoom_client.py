@@ -16,12 +16,11 @@ kiwoom/_data/kiwoom_api_spec.json을 2026-10-19에 직접 받아 확인한 필�
 필요 환경변수: KIWOOM_APPKEY, KIWOOM_SECRETKEY (.env.local 또는 GitHub Secrets).
 KIWOOM_HOST를 넣으면 실전 대신 모의투자 도메인(https://mockapi.kiwoom.com)으로 바꿀 수 있다.
 
-⚠ 확인된 제약(키움 개발자센터 안내, 이 프로젝트에서는 미실측): 접근토큰 발급은 사전에
-등록한 IP에서만 된다(최대 10개). GitHub Actions 호스티드 러너는 IP가 매번 바뀌므로,
-이 모듈을 GitHub Actions에서 그대로 쓰면 토큰 발급 단계(get_access_token)에서
-8050류 에러로 막힐 가능성이 있다 - 실제로 막히는지는 이 세션에서 키움 앱키를
-받기 전이라 검증하지 못했다. 막히면 로컬/고정 IP 환경에서만 수동 실행하는 용도로
-남는다(완전 자동화 불가, 수동 플랜B)."""
+⚠ 확인된 제약(2026-10-20, 회장님이 직접 테스트): 접근토큰 발급은 사전에 등록한
+IP에서만 된다(최대 10개). GitHub Actions 호스티드 러너는 IP가 매번 바뀌어 등록
+자체가 불가능하고, 실제로 접속이 안 되는 것까지 확인됐다. 그래서 이 모듈은
+GitHub Actions(gainers-daily.yml)에는 일부러 연결하지 않았다 - 로컬(고정 IP)에서
+네이버가 막혔을 때 사람이 수동으로 돌리는 용도로만 쓴다(완전 자동화 불가)."""
 import os
 import time
 

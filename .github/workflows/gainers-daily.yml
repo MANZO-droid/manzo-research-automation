@@ -24,6 +24,12 @@ name: "상승률 상위 10위 자동 수집"
 #                                   자동 대체하기 위해 필요(collect_gainers.fetch_krx_day_prices 참고)
 #
 # (더 이상 필요하지 않음: SITE_REPO_PAT — 사이트 저장소에 커밋할 필요가 없어져서 제거했습니다.)
+#
+# 2026-10-20: 네이버의 3차 플랜B로 키움 REST API(scripts/kiwoom_client.py)를 만들었지만,
+# 이 워크플로에는 KIWOOM_APPKEY/KIWOOM_SECRET을 일부러 안 넣었습니다 - 키움은 토큰 발급을
+# 사전 등록한 IP(최대 10개)에서만 허용하는데, GitHub Actions 호스티드 러너는 매번 IP가
+# 바뀌어 등록 자체가 불가능합니다(회장님이 실제로 테스트해서 접속 실패 확인). 그래서 키움
+# 플랜B는 로컬(고정 IP)에서 사람이 수동으로 돌릴 때만 쓰는 용도로 남겨둡니다.
 
 on:
   schedule:
@@ -59,8 +65,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}
-          KIWOOM_APPKEY: ${{ secrets.KIWOOM_APPKEY }}
-          KIWOOM_SECRETKEY: ${{ secrets.KIWOOM_SECRETKEY }}
           PYTHONUNBUFFERED: "1"
         run: |
           python -u scripts/collect_gainers.py

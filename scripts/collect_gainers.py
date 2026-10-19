@@ -319,8 +319,12 @@ def fetch_kiwoom_fallback_gainers(market: str, top_n: int) -> list[dict]:
     """2026-10-19 추가 - 네이버 실패 시 2차 플랜B. KRX Open API(3차, 아래 KRX 대체소스)는
     "최신 며칠치가 아직 안 올라와 있을 때가 있다"는 한계가 이미 확인돼 있어(2026-09-29
     주석 참고) 당일 대체로는 못 미덥다. 키움 REST API는 네이버처럼 실시간이라 그 자리를
-    메울 수 있다(scripts/kiwoom_client.py). KIWOOM_APPKEY/SECRETKEY가 없거나 키움 쪽도
-    실패하면 빈 리스트를 반환해 호출부가 다음 단계(KRX)로 넘어가게 둔다."""
+    메울 수 있다(scripts/kiwoom_client.py). ⚠ 단, 키움은 토큰 발급에 사전 IP 등록이
+    필요해 GitHub Actions(유동 IP)에서는 실제로 접속이 안 되는 것까지 확인됐다(회장님
+    실측, 2026-10-20) - 이 함수는 로컬(고정 IP) 수동 실행에서만 효과가 있고, GH Actions
+    위에서는 아래 except에 걸려 조용히 다음 단계(KRX)로 넘어간다. KIWOOM_APPKEY/
+    KIWOOM_SECRET이 없거나 키움 쪽도 실패하면 빈 리스트를 반환해 호출부가 다음
+    단계로 넘어가게 둔다."""
     try:
         import kiwoom_client
         stocks = kiwoom_client.fetch_top_gainers(market, top_n)
