@@ -42,9 +42,12 @@ def get_access_token() -> str:
         return _token_cache["token"]
 
     appkey = os.environ.get("KIWOOM_APPKEY")
-    secretkey = os.environ.get("KIWOOM_SECRETKEY")
+    # 2026-10-20: Vercel 쪽 옛 키움 연동(삭제된 api/cron-update-gainers.js)이 이미
+    # KIWOOM_SECRET이라는 이름을 쓰고 있었고, 회장님이 .env.local에도 그 이름으로
+    # 등록하셨다 - 새 이름(KIWOOM_SECRETKEY)도 계속 받되 기존 이름과 호환되게 둔다.
+    secretkey = os.environ.get("KIWOOM_SECRETKEY") or os.environ.get("KIWOOM_SECRET")
     if not appkey or not secretkey:
-        raise RuntimeError("KIWOOM_APPKEY/KIWOOM_SECRETKEY가 없습니다 - .env.local에 추가해 주세요.")
+        raise RuntimeError("KIWOOM_APPKEY/KIWOOM_SECRETKEY(또는 KIWOOM_SECRET)가 없습니다 - .env.local에 추가해 주세요.")
 
     r = requests.post(
         f"{_host()}/oauth2/token",
@@ -60,6 +63,13 @@ def get_access_token() -> str:
     _token_cache["token"] = data["token"]
     _token_cache["expires_at"] = now + 23 * 3600
     return data["token"]
+
+
+def _clean_ticker(raw: str) -> str:
+    """순위정보 TR의 종목코드는 "083660_AL"처럼 거래소 접미사(_AL/_NX 등)가
+    붙어서 온다(2026-10-20 실측 - 공식 스펙 문서에는 안 나와 있던 부분이라
+    처음 호출해보고서야 발견했다). 접미사를 떼어 6자리 숫자 코드만 남긴다."""
+    return raw.split("_", 1)[0]
 
 
 def _call(api_id: str, body: dict) -> dict:
@@ -98,7 +108,7 @@ def fetch_top_gainers(market: str, top_n: int = 40) -> list[dict]:
     })
     out = []
     for item in data.get("pred_pre_flu_rt_upper", []):
-        ticker = item.get("stk_cd", "")
+        ticker = _clean_ticker(item.get("stk_cd", ""))
         if not (len(ticker) == 6 and ticker.isdigit()):
             continue
         try:
@@ -127,7 +137,7 @@ def fetch_volume_stocks(top_n: int = 10) -> list[dict]:
     for mrkt_tp in ("001", "101"):
         data = _call("ka10032", {"mrkt_tp": mrkt_tp, "mang_stk_incls": "0", "stex_tp": "3"})
         for item in data.get("trde_prica_upper", []):
-            ticker = item.get("stk_cd", "")
+            ticker = _clean_ticker(item.get("stk_cd", ""))
             if not (len(ticker) == 6 and ticker.isdigit()):
                 continue
             try:
