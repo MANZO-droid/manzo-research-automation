@@ -59,6 +59,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           KRX_OPENAPI_KEY: ${{ secrets.KRX_OPENAPI_KEY }}
+          KIWOOM_APPKEY: ${{ secrets.KIWOOM_APPKEY }}
+          KIWOOM_SECRETKEY: ${{ secrets.KIWOOM_SECRETKEY }}
           PYTHONUNBUFFERED: "1"
         run: |
           python -u scripts/collect_gainers.py

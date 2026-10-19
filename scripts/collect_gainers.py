@@ -308,9 +308,29 @@ def fetch_top_gainers(market: str, top_n: int = 40) -> list[dict]:
         print(f"  [수집 오류] {market}: {e}")
 
     if not stocks:
+        stocks = fetch_kiwoom_fallback_gainers(market, top_n)
+    if not stocks:
         print(f"  [대체소스] 네이버 API 응답이 비어있어 KRX 정식 시세로 대체합니다: {market}")
         stocks = fetch_krx_day_prices(datetime.now(KST).strftime("%Y%m%d"), market, top_n=top_n)
     return stocks
+
+
+def fetch_kiwoom_fallback_gainers(market: str, top_n: int) -> list[dict]:
+    """2026-10-19 추가 - 네이버 실패 시 2차 플랜B. KRX Open API(3차, 아래 KRX 대체소스)는
+    "최신 며칠치가 아직 안 올라와 있을 때가 있다"는 한계가 이미 확인돼 있어(2026-09-29
+    주석 참고) 당일 대체로는 못 미덥다. 키움 REST API는 네이버처럼 실시간이라 그 자리를
+    메울 수 있다(scripts/kiwoom_client.py). KIWOOM_APPKEY/SECRETKEY가 없거나 키움 쪽도
+    실패하면 빈 리스트를 반환해 호출부가 다음 단계(KRX)로 넘어가게 둔다."""
+    try:
+        import kiwoom_client
+        stocks = kiwoom_client.fetch_top_gainers(market, top_n)
+        if stocks:
+            print(f"  [대체소스] 네이버 API 응답이 비어있어 키움 API(ka10027)로 대체합니다: "
+                  f"{market} {len(stocks)}개 확보")
+        return stocks
+    except Exception as e:
+        print(f"  [대체소스 실패] 키움 API {market}: {e}")
+        return []
 
 
 def fetch_krx_day_prices(base_dd: str, market: str, top_n: int = 40) -> list[dict]:
@@ -1461,6 +1481,21 @@ def fetch_prev_volume_stocks(date_str: str) -> dict:
         return {}
 
 
+def fetch_kiwoom_fallback_volume() -> list[dict]:
+    """2026-10-19 추가 - fetch_kiwoom_fallback_gainers와 같은 이유(KRX Open API의
+    당일 발표 지연 한계)로, 거래대금 상위도 키움을 2차 플랜B로 쓴다."""
+    try:
+        import kiwoom_client
+        stocks = kiwoom_client.fetch_volume_stocks(top_n=2900)
+        if stocks:
+            print(f"  [대체소스] 네이버 API 응답이 비어있어 키움 API(ka10032)로 대체합니다: "
+                  f"거래대금 {len(stocks)}개 확보")
+        return stocks
+    except Exception as e:
+        print(f"  [대체소스 실패] 키움 API 거래대금: {e}")
+        return []
+
+
 def fetch_volume_stocks(date_str: str) -> list[dict]:
     """KOSPI+KOSDAQ 합산 거래대금 상위 10종목 반환. date_str은 이번에 저장할
     trade_date - fetch_prev_volume_stocks()가 "전일"을 찾을 때 이 날짜 자신을
@@ -1513,6 +1548,10 @@ def fetch_volume_stocks(date_str: str) -> list[dict]:
     except Exception as e:
         print(f"  [거래대금 수집 오류] {e}")
 
+    if not stocks:
+        stocks = fetch_kiwoom_fallback_volume()
+        for s in stocks:
+            s["naverUrl"] = f"https://finance.naver.com/item/main.naver?code={s['ticker']}"
     if not stocks:
         print("  [대체소스] 네이버 API 응답이 비어있어 KRX 정식 시세로 대체합니다: 거래대금")
         stocks = fetch_krx_day_all(date_str.replace("-", ""))
