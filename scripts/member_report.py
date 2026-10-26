@@ -176,12 +176,13 @@ def build_prompt(name, code, ftext, articles):
 
 [작성 규칙]
 - 2~3개 문단, 전체 500자 이내. 제목·목록·마크다운 없이 줄글로 씁니다.
-- 첫 문단: 수치로 본 현재 위치(종가, 이동평균 대비, 52주 고점·저점 대비)를 설명합니다.
+- 문장은 "~입니다", "~했습니다" 같은 존댓말로 씁니다. "~이다", "~했다" 같은 반말체는 쓰지 않습니다.
+- 첫 문단: 수치로 본 현재 위치를 설명합니다. 표에 이미 있는 수치를 전부 나열하지 말고, 가장 두드러진 2~3개만 골라 쓰세요.
 - 둘째 문단: 기사에서 확인되는 최근 사건·이슈를 사실대로 요약합니다. 기사에 없는 내용은 절대 지어내지 마세요.
 - 숫자는 아래 '제공된 수치'와 기사에 있는 값만, 표기 그대로 쓰세요. 계산하거나 반올림해서 새 숫자를 만들지 마세요.
 - 금지: 매수·매도·보유·손절 등 행동 권유, 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 호재·악재 같은 평가, 투자의견.
   과거와 현재의 사실만 씁니다.
-- 수급(거래 흐름)을 언급할 때는 제공된 "순매수" 표현만 쓰세요. 값이 마이너스면 "순매도"라고 씁니다. 그 밖의 "매수세·매도세" 같은 표현은 쓰지 마세요.
+- 수급(거래 흐름)을 언급할 때는 제공된 "순매수" 표현만 쓰세요. 값이 마이너스면 부호 없이 "순매도 2,101.7억원"처럼 씁니다("순매도 -2,101.7억원"처럼 부호를 붙이지 마세요). 그 밖의 "매수세·매도세" 같은 표현은 쓰지 마세요.
 - 기사가 없으면 둘째 문단은 "최근 수집된 관련 기사가 없습니다."라고만 씁니다.
 
 종목: {name} ({code})
@@ -237,7 +238,15 @@ def _safe_url(u):
     return u if re.match(r"^https?://", u, re.I) else ""
 
 
-def _dedupe_news(articles):
+def _prefer_relevant(name, articles):
+    """종목 이름이 제목·요약에 나오는 기사만 고른다(네이버 종목 뉴스 피드에는 무관한 기사도 섞여 온다).
+    그런 기사가 3건 미만이면 걸러내지 않고 전체를 쓴다(뉴스가 텅 비는 것보다 낫다). 반환 길이는 NEWS_MAX 이하."""
+    every = _dedupe_news(articles, limit=50)
+    matched = [a for a in every if name and name in (a["title"] + " " + a.get("summary", ""))]
+    return (matched if len(matched) >= 3 else every)[:NEWS_MAX]
+
+
+def _dedupe_news(articles, limit=NEWS_MAX):
     seen, out = set(), []
     for a in articles or []:
         # 네이버가 제목에 &quot; 같은 HTML 코드를 그대로 담아 주므로 먼저 풀어 둔다(표시할 때 한 번만 이스케이프한다)
@@ -246,7 +255,7 @@ def _dedupe_news(articles):
             continue
         seen.add(t)
         out.append(dict(a, title=t, summary=html.unescape(a.get("summary") or "")))
-        if len(out) >= NEWS_MAX:
+        if len(out) >= limit:
             break
     return out
 
@@ -381,6 +390,7 @@ def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=d
     except Exception as ex:
         log(f"[뉴스 수집 실패] {code}: {type(ex).__name__}")
         articles = []
+    articles = _prefer_relevant(price.get("stock_name") or code, articles)
     investors = None
     if investors_fn:
         try:

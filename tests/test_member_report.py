@@ -143,6 +143,12 @@ class ValidateAiTests(unittest.TestCase):
         self.assertEqual(seen[0][0], bad)
         self.assertIn("금지 표현", seen[0][1])
 
+    def test_prompt_asks_polite_style_and_signless_net_sell(self):
+        p = mr.build_prompt("삼성전자", "005930", "x", [])
+        self.assertIn("존댓말", p)
+        self.assertIn("부호 없이", p)
+        self.assertIn("2~3개", p)
+
     def test_prompt_mentions_net_flow_wording(self):
         self.assertIn("순매수", mr.build_prompt("삼성전자", "005930", "x", []))
 
@@ -207,6 +213,34 @@ class RenderTests(unittest.TestCase):
         r = mr.build_report("005930", PRICE, NEWS, None, GOOD_AI)
         for word in ("평균단가", "평균 매수가", "평가손익", "수량"):
             self.assertNotIn(word, r["text"])
+
+
+class RelevantNewsTests(unittest.TestCase):
+    @staticmethod
+    def _n(title, summary=""):
+        return {"title": title, "summary": summary, "date": "2026-10-26", "url": "https://n.news.naver.com/x"}
+
+    def test_keeps_only_articles_mentioning_the_stock_when_enough(self):
+        arts = [self._n("삼성전자, 신제품 출시"), self._n("엉뚱한 회사 소식", "삼성전자와 무관"), self._n("스마트폰 시장", "삼성전자 점유율"),
+                self._n("전혀 다른 기사", "아무 관련 없음"), self._n("삼성전자 3분기 실적 발표")]
+        got = [a["title"] for a in mr._prefer_relevant("삼성전자", arts)]
+        self.assertEqual(got, ["삼성전자, 신제품 출시", "엉뚱한 회사 소식", "스마트폰 시장", "삼성전자 3분기 실적 발표"])
+
+    def test_falls_back_to_all_when_fewer_than_three_match(self):
+        arts = [self._n("삼성전자 소식"), self._n("다른 기사 1"), self._n("다른 기사 2")]
+        self.assertEqual(len(mr._prefer_relevant("삼성전자", arts)), 3)
+
+    def test_caps_at_news_max_and_dedupes(self):
+        arts = [self._n(f"삼성전자 기사 {i}") for i in range(20)] + [self._n("삼성전자 기사 0")]
+        got = mr._prefer_relevant("삼성전자", arts)
+        self.assertEqual(len(got), mr.NEWS_MAX)
+        self.assertEqual(len({a["title"] for a in got}), mr.NEWS_MAX)
+
+    def test_generate_uses_relevant_articles_for_report(self):
+        arts = [self._n("삼성전자, 신제품 출시"), self._n("삼성전자 실적 발표"), self._n("삼성전자 주주환원"), self._n("크린앤사이언스 해외 매출")]
+        r = mr.generate("005930", PRICE, lambda c, d: arts)
+        self.assertNotIn("크린앤사이언스", r["text"])
+        self.assertIn("삼성전자 실적 발표", r["text"])
 
 
 class GenerateTests(unittest.TestCase):
