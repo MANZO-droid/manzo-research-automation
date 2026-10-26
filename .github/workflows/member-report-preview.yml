@@ -1,0 +1,62 @@
+name: "회원 종목 리포트 견본 만들기 (수동 실행 전용)"
+
+# 2026-10-26 (P3): 사이트 My page의 [리포트 받기]로 회원에게 보낼 "종목 현재 상태 리포트"를 만드는 스크립트
+# (scripts/member_report.py)가 실제 Groq·네이버 데이터로 어떤 결과를 내는지 사람이 눈으로 확인하기 위한 워크플로.
+#
+# - 수동 실행(workflow_dispatch)만 한다. 스케줄·요청 처리·메일 발송은 하지 않는다(P4에서 따로 연결).
+# - Supabase는 시세(member_prices)를 "읽기"만 한다. 아무것도 저장하지 않는다.
+# - 결과는 실행 화면 아래쪽 Artifacts(member-report-sample)에서 HTML·텍스트 파일로 받아 본다.
+# - 먼저 단위 테스트가 통과해야 견본을 만든다(금지 표현·숫자 검증 등이 깨졌으면 여기서 멈춘다).
+#
+# 필요한 GitHub Secrets (gainers-daily.yml 과 같은 것): GROQ_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+# 설계서: manzo-site 저장소 docs/superpowers/specs/2026-10-25-member-report-addendum.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_code:
+        description: "종목코드 6자리 (예: 005930)"
+        required: true
+        default: "005930"
+
+concurrency:
+  group: member-report-preview
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 이 저장소(리서치자동화) 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: |
+          pip install requests beautifulsoup4 groq
+
+      - name: 단위 테스트 (금지 표현·숫자 검증·요청 처리 규칙)
+        run: |
+          python -m unittest tests.test_member_report -v
+
+      - name: 견본 리포트 만들기 (메일 발송·DB 저장 없음)
+        env:
+          STOCK_CODE: ${{ inputs.stock_code }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python -u scripts/member_report.py --preview "$STOCK_CODE" --out out
+
+      - name: 결과 파일 올리기
+        uses: actions/upload-artifact@v4
+        with:
+          name: member-report-sample
+          path: out/
+          retention-days: 7
