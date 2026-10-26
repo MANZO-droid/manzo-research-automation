@@ -62,6 +62,14 @@ class BannedTests(unittest.TestCase):
                   "비중 확대가 필요합니다", "상승 여력이 큽니다", "반등할 수 있습니다", "투자의견 상향"]:
             self.assertTrue(mr.find_banned(s), "걸러져야 함: " + s)
 
+    def test_net_flow_terms_are_allowed_but_advice_is_not(self):
+        # 수급 수치의 이름("순매수·순매도")은 사실이므로 허용
+        for s in ["외국인은 2,101.7억원 순매도, 기관은 1,340.7억원 순매수를 기록했습니다.", "개인 순매수가 693.7억원입니다."]:
+            self.assertEqual(mr.find_banned(s), [], "허용되어야 함: " + s)
+        # 행동 권유·평가로 쓰이는 매수·매도는 여전히 막는다
+        for s in ["매수 의견이 나왔습니다", "지금이 매도 시점입니다", "외국인 매도세가 강합니다", "기관 매수세가 이어집니다", "분할 매수 전략"]:
+            self.assertTrue(mr.find_banned(s), "걸러져야 함: " + s)
+
     def test_clean_sentences_pass(self):
         for s in ["종가는 215,500원이며 20일선보다 6.3% 낮습니다.", "이동평균은 역배열 상태입니다.", "공장이 가동을 시작했다는 기사가 있습니다."]:
             self.assertEqual(mr.find_banned(s), [], "통과해야 함: " + s)
@@ -126,6 +134,17 @@ class ValidateAiTests(unittest.TestCase):
         self.assertIsNone(text)
         self.assertIn("금지 표현", reason)
         self.assertEqual(len(calls), 2)
+
+    def test_on_reject_receives_rejected_text_and_reason(self):
+        bad = "삼성전자의 종가는 215,500원입니다. 앞으로 주가가 오를 가능성이 높아 매수 의견을 제시합니다. 충분한 길이를 맞추기 위한 문장입니다."
+        seen = []
+        mr.ai_explanation(lambda p: bad, "삼성전자", "005930", mr.build_facts(PRICE), [], on_reject=lambda t, r: seen.append((t, r)))
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0][0], bad)
+        self.assertIn("금지 표현", seen[0][1])
+
+    def test_prompt_mentions_net_flow_wording(self):
+        self.assertIn("순매수", mr.build_prompt("삼성전자", "005930", "x", []))
 
     def test_prompt_contains_rules_and_no_member_data(self):
         p = mr.build_prompt("삼성전자", "005930", "종가: 215,500원", NEWS[:1])

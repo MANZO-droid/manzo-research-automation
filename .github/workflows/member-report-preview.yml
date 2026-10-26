@@ -52,7 +52,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           PYTHONUNBUFFERED: "1"
         run: |
-          python -u scripts/member_report.py --preview "$STOCK_CODE" --out out
+          python -u scripts/member_report.py --preview "$STOCK_CODE" --out out --show-rejected
 
       - name: 결과 파일 올리기
         uses: actions/upload-artifact@v4

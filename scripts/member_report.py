@@ -41,7 +41,8 @@ NEWS_MAX = 8
 # 행동 권유(매수·매도 등), 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 평가(저평가 등)는 쓰지 않는다.
 # 보수적으로 잡았으므로 정상 문장이 걸려 기본형으로 대체될 수 있다(그쪽이 안전하다).
 BANNED_PATTERNS = [
-    r"매수", r"매도", r"추천", r"목표\s?(주)?가", r"전망", r"예상", r"예측", r"기대", r"유망",
+    # "순매수·순매도"는 수급 수치의 이름(사실)이라 허용하고, 행동 권유로 쓰이는 "매수 의견"·"매도 신호" 등은 막는다.
+    r"(?<!순)매수", r"(?<!순)매도", r"추천", r"목표\s?(주)?가", r"전망", r"예상", r"예측", r"기대", r"유망",
     r"상승\s?여력", r"하락\s?여력", r"사야", r"팔아", r"사라", r"팔라", r"손절", r"익절",
     r"비중\s?(확대|축소|조절)", r"담아", r"관망", r"투자\s?의견", r"저평가", r"고평가", r"적정\s?주가",
     r"(오를|내릴|상승할|하락할|반등할|돌파할|넘을|깰)\s?(것|가능|듯|수)",
@@ -180,6 +181,7 @@ def build_prompt(name, code, ftext, articles):
 - 숫자는 아래 '제공된 수치'와 기사에 있는 값만, 표기 그대로 쓰세요. 계산하거나 반올림해서 새 숫자를 만들지 마세요.
 - 금지: 매수·매도·보유·손절 등 행동 권유, 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 호재·악재 같은 평가, 투자의견.
   과거와 현재의 사실만 씁니다.
+- 수급(거래 흐름)을 언급할 때는 제공된 "순매수" 표현만 쓰세요. 값이 마이너스면 "순매도"라고 씁니다. 그 밖의 "매수세·매도세" 같은 표현은 쓰지 마세요.
 - 기사가 없으면 둘째 문단은 "최근 수집된 관련 기사가 없습니다."라고만 씁니다.
 
 종목: {name} ({code})
@@ -212,8 +214,9 @@ def validate_ai_text(text, allowed_text, lang_check=default_lang_check):
     return None
 
 
-def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_check, attempts=2):
-    """(설명문 또는 None, 마지막 거절 사유). 거절되면 한 번 더 시도하고, 그래도 안 되면 None."""
+def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_check, attempts=2, on_reject=None):
+    """(설명문 또는 None, 마지막 거절 사유). 거절되면 한 번 더 시도하고, 그래도 안 되면 None.
+    on_reject(text, reason): 거절된 문장을 확인용으로 받아 볼 수 있는 선택 콜백(견본 점검용)."""
     ftext = facts_text(facts)
     allowed = ftext + "\n" + "\n".join(f"{a.get('title', '')} {a.get('summary', '')} {a.get('date', '')}" for a in articles)
     prompt = build_prompt(name, code, ftext, articles)
@@ -223,6 +226,8 @@ def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_ch
         reason = validate_ai_text(text, allowed, lang_check)
         if reason is None:
             return text, None
+        if on_reject:
+            on_reject(text, reason)
     return None, reason
 
 
@@ -369,7 +374,7 @@ class ReportMaker:
         return report
 
 
-def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=default_lang_check, log=print):
+def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=default_lang_check, log=print, on_reject=None):
     """수집(뉴스·수급) → AI 설명(검증 통과 시) → 조립. 저장은 하지 않는다."""
     try:
         articles = news_fn(code, price["trade_date"]) or []
@@ -385,7 +390,8 @@ def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=d
     ai_text = None
     if ai_call:
         facts = build_facts(price, investors)
-        ai_text, reason = ai_explanation(ai_call, price.get("stock_name") or code, code, facts, _dedupe_news(articles), lang_check)
+        ai_text, reason = ai_explanation(ai_call, price.get("stock_name") or code, code, facts, _dedupe_news(articles), lang_check,
+                                         on_reject=on_reject)
         if ai_text is None:
             log(f"[AI 설명 버림 → 기본형] {code}: {reason}")
     return build_report(code, price, articles, investors, ai_text)
@@ -466,6 +472,7 @@ def main(argv=None):
     ap.add_argument("--price-json", help="시세 행(JSON 파일). 없으면 Supabase member_prices 에서 읽음")
     ap.add_argument("--news-json", help="뉴스 목록(JSON 파일). 없으면 네이버에서 수집")
     ap.add_argument("--no-investors", action="store_true", help="수급 수집 생략")
+    ap.add_argument("--show-rejected", action="store_true", help="검증에서 버려진 AI 문장과 사유를 출력(견본 점검용)")
     a = ap.parse_args(argv)
     if not re.fullmatch(r"\d{6}", a.preview):
         sys.exit("종목코드는 숫자 6자리여야 합니다")
@@ -507,7 +514,10 @@ def main(argv=None):
     elif not a.no_ai:
         print("[안내] GROQ_API_KEY 가 없어 AI 설명 없이 기본형으로 만듭니다.")
 
-    report = generate(code, price, news_fn, investors_fn, ai_call)
+    def show_rejected(text, reason):
+        print(f"[버려진 AI 문장] 사유: {reason}\n---\n{text}\n---")
+
+    report = generate(code, price, news_fn, investors_fn, ai_call, on_reject=show_rejected if a.show_rejected else None)
     os.makedirs(a.out, exist_ok=True)
     stem = os.path.join(a.out, f"member-report-{code}-{report['report_date']}")
     with open(stem + ".html", "w", encoding="utf-8") as f:
