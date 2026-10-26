@@ -831,3 +831,26 @@ daily_gainers 리포트가 있는지 확인해서 빠지면 워크플로 자체�
   옵시디언 볼트 동기화 스크립트를 재실행해 수정된 텍스트로 갱신(현재
   볼트엔 오염된 옛 텍스트가 그대로 들어가 있음), (3) `scripts/list_groq_models.py`는
   진단용으로 남겨둠 - 앞으로 Groq가 또 모델을 내리면 이걸로 먼저 확인.
+
+## 2026-10-26: 회원 종목 리포트 생성기 추가 (P3) — `scripts/member_report.py`
+
+사이트(manzo-site) My page에서 회장님이 승인한 회원이 [리포트 받기]를 누르면, 그 종목의 "현재 상태 리포트"를
+메일로 보내는 기능의 **생성 부분**이다. 설계서는 manzo-site 저장소
+`docs/superpowers/specs/2026-10-25-member-report-addendum.md` (§5~§7)가 정본이다. 이 저장소의 Top10 자동화
+(`automation.yaml`의 `manzo-top10-gainers`)와는 별개 기능이라 `design/automation.yaml`은 건드리지 않고 여기에 기록한다.
+
+- **입력은 종목코드뿐이다.** 회원의 매수가·수량·손익은 이 스크립트에 들어오지 않는다(무기명 원칙·개인 맞춤 조언 회피).
+- **숫자는 코드가 채운다.** 종가·이동평균 대비·52주 고저 대비·배열은 사이트 DB `member_prices` 값으로 만들고,
+  사이트 `lib/holdings-calc.js`의 `chartPosition`과 같은 규칙이다(JS↔Python 401개 임의 입력에서 불일치 0건 확인).
+- **AI(Groq)는 설명 문단만 쓴다.** 아래 중 하나라도 걸리면 AI 문단을 통째로 버리고(재시도 1회 후) 수치·뉴스 제목만 담은
+  "기본형"으로 보낸다: 금지 표현(매수·매도·추천·목표가·전망·예상·예측·기대·"~할 것"·"~가능성" 등), 외국어 섞임,
+  제공하지 않은 두 자리 이상 숫자, 제목·목록 형식, 길이 이탈.
+- 뉴스는 제목·날짜·링크만 표시한다(본문은 AI 입력에만 쓰고 복사하지 않음). 네이버가 제목에 담아 주는 `&quot;` 등은 풀어서 표시한다.
+- 같은 종목·같은 시세일 리포트는 `member_stock_reports` 표에 한 번만 만들어 재사용한다(AI 호출 절약, 표는 manzo-site `db/006`).
+- 요청 처리 함수 `process_queue`는 요청을 '처리 중'으로 먼저 선점해 두 번 처리되지 않게 하고, 실패 사유에서 메일 주소를 가린다.
+  **실제 메일 발송기는 아직 없다**(시험용 `FakeSender`만). 외부 발송은 이 저장소 규칙(CLAUDE.md 8번)대로 P4에서 회장님 승인 후 연결한다.
+- 견본: `python scripts/member_report.py --preview 005930 --out out` 또는 수동 워크플로 `member-report-preview.yml`
+  (단위 테스트 통과 후 견본을 만들고 결과를 Artifacts로 올린다. 메일·DB 저장 없음).
+- 테스트: `python -m unittest tests.test_member_report -v` (28개, 네트워크·Groq·Supabase 불필요).
+- **미검증**: 실제 Groq가 쓴 문장이 검증을 통과하는 비율(이 PC에는 GROQ_API_KEY가 없어 수치 위주 기본형만 확인함),
+  GitHub Actions에서의 실행. 수동 워크플로를 한 번 돌려 AI 문단이 포함된 견본을 회장님이 직접 읽어 보는 것이 공개 조건이다.
