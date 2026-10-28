@@ -231,6 +231,35 @@ class RenderTests(unittest.TestCase):
             self.assertNotIn(word, r["text"])
 
 
+class NewsFetchAndTextNormalizeTests(unittest.TestCase):
+    def test_news_window_is_based_on_today_not_trade_date(self):
+        calls = []
+        class FakeCg:
+            @staticmethod
+            def fetch_stock_news(code, date, max_articles, days_before, days_after):
+                calls.append((code, date, days_before, days_after))
+                return []
+        fetch = mr.make_news_fn(FakeCg, today="2026-10-28")
+        fetch("005930", "2026-10-27")          # 시세일(10/27)이 아니라 오늘(10/28) 기준으로 찾아야 한다
+        self.assertEqual(calls, [("005930", "2026-10-28", 7, 1)])
+
+    def test_odd_minus_signs_become_ascii_hyphen(self):
+        self.assertEqual(mr.normalize_ai_text("52주 고점 대비 ‑38.1%, 순매수 −3,546.3억원, –14.8%"),
+                         "52주 고점 대비 -38.1%, 순매수 -3,546.3억원, -14.8%")
+        self.assertEqual(mr.normalize_ai_text("20일선-60일선 사이"), "20일선-60일선 사이")   # 숫자 앞이 아닌 하이픈은 그대로
+
+    def test_ai_explanation_normalizes_minus_before_validation(self):
+        good = ("삼성전자의 종가는 215,500원(2026-10-23 기준)으로 20일선보다 6.3% 낮은 위치에 있습니다. 52주 고점 대비 ‑28.2% 수준이며, "
+                "이동평균은 역배열입니다.\n\n최근 수집된 관련 기사가 없습니다.")
+        text, reason = mr.ai_explanation(lambda p: good, "삼성전자", "005930", mr.build_facts(PRICE), [])
+        self.assertIsNone(reason)
+        self.assertIn("대비 -28.2%", text)
+        self.assertNotIn("‑", text)
+
+    def test_prompt_asks_position_wording_not_up_down(self):
+        self.assertIn("높은/낮은 위치", mr.build_prompt("삼성전자", "005930", "x", []))
+
+
 class SensationalNewsTests(unittest.TestCase):
     @staticmethod
     def _n(title):

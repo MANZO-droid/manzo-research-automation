@@ -193,6 +193,7 @@ def build_prompt(name, code, ftext, articles):
 - 문장은 "~입니다", "~했습니다" 같은 존댓말로 씁니다. "~이다", "~했다" 같은 반말체는 쓰지 않습니다.
 - 첫 문단: 수치로 본 현재 위치를 설명합니다. 표에 이미 있는 수치를 전부 나열하지 말고, 가장 두드러진 2~3개만 골라 쓰세요.
 - 둘째 문단: 기사에서 확인되는 최근 사건·이슈를 사실대로 요약합니다. 기사에 없는 내용은 절대 지어내지 마세요.
+- 이동평균선·52주 고점·저점 대비 수치는 기준선보다 "높은/낮은 위치"라고 표현하세요. 그 수치를 보고 "상승했다·하락했다"고 쓰지 마세요(변동이 아니라 위치입니다).
 - 숫자는 아래 '제공된 수치'와 기사에 있는 값만, 표기 그대로 쓰세요. 계산하거나 반올림해서 새 숫자를 만들지 마세요.
 - 금지: 매수·매도·보유·손절 등 행동 권유, 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 호재·악재 같은 평가, 투자의견.
   과거와 현재의 사실만 씁니다.
@@ -235,6 +236,23 @@ def validate_ai_text(text, allowed_text, lang_check=default_lang_check):
     return None
 
 
+_ODD_MINUS_RE = re.compile("[‐‑‒–−](?=\\d)")
+
+
+def normalize_ai_text(text):
+    """AI가 숫자 앞 마이너스를 하이픈 모양의 다른 문자(‑, −, –)로 쓰는 경우가 있어 일반 '-'로 바꾼다."""
+    return _ODD_MINUS_RE.sub("-", text or "")
+
+
+def make_news_fn(cg, today=None):
+    """네이버 종목 뉴스 수집 함수를 만든다. 기준은 시세일이 아니라 '오늘(KST) 기준 최근 7일'이다.
+    (시세일 기준으로 찾으면, 맨 앞 페이지가 전부 시세일 이후 기사일 때 수집이 0건으로 끝난다 - 2026-10-28 실제 확인)"""
+    def fetch(code, trade_date):
+        d = today or datetime.now(KST).strftime("%Y-%m-%d")
+        return cg.fetch_stock_news(code, d, max_articles=12, days_before=7, days_after=1)
+    return fetch
+
+
 def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_check, attempts=2, on_reject=None):
     """(설명문 또는 None, 마지막 거절 사유). 거절되면 한 번 더 시도하고, 그래도 안 되면 None.
     on_reject(text, reason): 거절된 문장을 확인용으로 받아 볼 수 있는 선택 콜백(견본 점검용)."""
@@ -243,7 +261,7 @@ def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_ch
     prompt = build_prompt(name, code, ftext, articles)
     reason = "AI 호출 안 함"
     for _ in range(attempts):
-        text = (call(prompt) or "").strip()
+        text = normalize_ai_text((call(prompt) or "").strip())
         reason = validate_ai_text(text, allowed, lang_check)
         if reason is None:
             return text, None
@@ -531,7 +549,7 @@ def main(argv=None):
             _news = json.load(f)
         news_fn = lambda c, d: _news
     else:
-        news_fn = lambda c, d: cg.fetch_stock_news(c, d, max_articles=12, days_before=7, days_after=0)
+        news_fn = make_news_fn(cg)
     investors_fn = None
     if not a.no_investors:
         def investors_fn(c, close):
