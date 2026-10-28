@@ -143,11 +143,27 @@ class ValidateAiTests(unittest.TestCase):
         self.assertEqual(seen[0][0], bad)
         self.assertIn("금지 표현", seen[0][1])
 
-    def test_prompt_asks_polite_style_and_signless_net_sell(self):
+    def test_prompt_asks_polite_style_and_signed_net_buy_only(self):
         p = mr.build_prompt("삼성전자", "005930", "x", [])
         self.assertIn("존댓말", p)
-        self.assertIn("부호 없이", p)
+        self.assertIn("부호까지 그대로", p)
+        self.assertIn("(순매도)", p)          # '순매도' 부연을 쓰지 말라는 지시
+        self.assertIn("자극적인 표현", p)
         self.assertIn("2~3개", p)
+
+    def test_net_sell_wording_and_sensational_words_are_rejected(self):
+        allowed = mr.facts_text(mr.build_facts(PRICE, {"foreign": -2.1e11, "institution": 1.3e11, "individual": 6.9e10}))
+        base = "삼성전자의 종가는 215,500원(2026-10-23 기준)이며 20일선보다 6.3% 낮은 위치에 있습니다. 이동평균 배열은 역배열입니다. "
+        # 부호가 있는 "순매수" 값으로만 표기하면 통과한다
+        self.assertIsNone(mr.validate_ai_text(base + "외국인 순매수 -2,100.0억원, 기관 순매수 +1,300.0억원입니다. 기사에서는 공장 가동이 확인됩니다.", allowed))
+        r1 = mr.validate_ai_text(base + "외국인은 순매도했고 기사에서는 공장 가동이 확인됩니다.", allowed)
+        self.assertIsNotNone(r1)
+        self.assertIn("순매도", r1)
+        r2 = mr.validate_ai_text(base + "증시 폭락 속에서도 기사에서는 공장 가동이 확인됩니다.", allowed)
+        self.assertIsNotNone(r2)
+        self.assertIn("자극적", r2)
+        r3 = mr.validate_ai_text(base + "이어서 대반전 시나리오가 언급되었다는 기사가 있습니다.", allowed)
+        self.assertIn("자극적", r3)
 
     def test_prompt_mentions_net_flow_wording(self):
         self.assertIn("순매수", mr.build_prompt("삼성전자", "005930", "x", []))
@@ -213,6 +229,33 @@ class RenderTests(unittest.TestCase):
         r = mr.build_report("005930", PRICE, NEWS, None, GOOD_AI)
         for word in ("평균단가", "평균 매수가", "평가손익", "수량"):
             self.assertNotIn(word, r["text"])
+
+
+class SensationalNewsTests(unittest.TestCase):
+    @staticmethod
+    def _n(title):
+        return {"title": title, "summary": "", "date": "2026-10-26", "url": "https://n.news.naver.com/x"}
+
+    def test_find_sensational(self):
+        for s in ["레버리지에 6조 날린 개미들 패닉", "폭락장에 피눈물 흘리는데", "'9천피' 대반전 시나리오 떴다", "곡소리 나는 증시"]:
+            self.assertTrue(mr.find_sensational(s), "걸러져야 함: " + s)
+        for s in ["삼성전자, 새 반도체 공장 가동", "3분기 실적 발표 앞두고 주주환원책 주목", "코스피 5,500선 내줘"]:
+            self.assertEqual(mr.find_sensational(s), [], "통과해야 함: " + s)
+
+    def test_generate_drops_sensational_titles_before_report_and_ai(self):
+        arts = [self._n("삼성전자, 신제품 출시"), self._n("삼성전자 실적 발표"), self._n("삼성전자 주주환원책"),
+                self._n("폭락장에 피눈물 흘리는 삼성전자 개미"), self._n("삼성전자 대반전 시나리오")]
+        seen_prompts = []
+        r = mr.generate("005930", PRICE, lambda c, d: arts, None, lambda p: seen_prompts.append(p) or "")
+        for word in ("폭락장", "피눈물", "대반전"):
+            self.assertNotIn(word, r["text"])
+            self.assertNotIn(word, "\n".join(p.split("기사:")[-1] for p in seen_prompts))
+        self.assertIn("삼성전자 실적 발표", r["text"])
+
+    def test_all_sensational_means_no_news_message(self):
+        arts = [self._n("삼성전자 폭락"), self._n("삼성전자 패닉")]
+        r = mr.generate("005930", PRICE, lambda c, d: arts)
+        self.assertIn("최근 수집된 관련 기사가 없습니다", r["text"])
 
 
 class RelevantNewsTests(unittest.TestCase):

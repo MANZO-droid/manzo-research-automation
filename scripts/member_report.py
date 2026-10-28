@@ -52,6 +52,20 @@ BANNED_PATTERNS = [
 ]
 _BANNED_RE = re.compile("|".join("(?:%s)" % p for p in BANNED_PATTERNS))
 
+# ─── 안전장치 1-2: 자극적인 표현 (회장님 지시 2026-10-28: "폭락장·대반전 시나리오 같은 표현은 가능하면 걸러달라") ─────────
+# 뉴스 제목에 이 표현이 있으면 그 기사는 리포트에서 뺀다. AI 설명문에 쓰이면 그 문단을 버린다.
+SENSATIONAL_PATTERNS = [
+    r"폭락", r"폭등", r"폭망", r"폭증", r"패닉", r"피눈물", r"눈물", r"충격", r"쇼크", r"대반전", r"반전", r"시나리오",
+    r"멘붕", r"지옥", r"대박", r"쪽박", r"떡상", r"떡락", r"곡소리", r"난리", r"공포", r"광풍", r"대란", r"붕괴", r"초토화",
+    r"비명", r"아수라장", r"아우성",
+]
+_SENSATIONAL_RE = re.compile("|".join(SENSATIONAL_PATTERNS))
+
+
+def find_sensational(text):
+    return [m.group(0) for m in _SENSATIONAL_RE.finditer(text or "")]
+
+
 # ─── 안전장치 2: 외국어 섞임 (collect_gainers.has_language_issue 와 같은 범위) ──────────
 _FOREIGN_RE = re.compile("[぀-ヿ฀-๿一-鿿ƀ-ɏḀ-ỿ]")
 
@@ -182,7 +196,8 @@ def build_prompt(name, code, ftext, articles):
 - 숫자는 아래 '제공된 수치'와 기사에 있는 값만, 표기 그대로 쓰세요. 계산하거나 반올림해서 새 숫자를 만들지 마세요.
 - 금지: 매수·매도·보유·손절 등 행동 권유, 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 호재·악재 같은 평가, 투자의견.
   과거와 현재의 사실만 씁니다.
-- 수급(거래 흐름)을 언급할 때는 제공된 "순매수" 표현만 쓰세요. 값이 마이너스면 부호 없이 "순매도 2,101.7억원"처럼 씁니다("순매도 -2,101.7억원"처럼 부호를 붙이지 마세요). 그 밖의 "매수세·매도세" 같은 표현은 쓰지 마세요.
+- 수급(거래 흐름)을 언급할 때는 제공된 값을 부호까지 그대로 "외국인 순매수 -2,101.7억원"처럼 쓰세요. "순매도"라는 말과 괄호 부연("(순매도)" 등)은 쓰지 마세요. 그 밖의 "매수세·매도세" 같은 표현도 쓰지 마세요.
+- 자극적인 표현(폭락·폭등·패닉·충격·대반전·시나리오 등)은 쓰지 말고, 차분한 서술로 씁니다.
 - 기사가 없으면 둘째 문단은 "최근 수집된 관련 기사가 없습니다."라고만 씁니다.
 
 종목: {name} ({code})
@@ -207,6 +222,11 @@ def validate_ai_text(text, allowed_text, lang_check=default_lang_check):
     hits = find_banned(t)
     if hits:
         return "금지 표현: " + ", ".join(sorted(set(hits))[:5])
+    spicy = find_sensational(t)
+    if spicy:
+        return "자극적 표현: " + ", ".join(sorted(set(spicy))[:5])
+    if "순매도" in t:
+        return "표기 규칙: '순매도' 사용(부호 있는 순매수 값으로만 표기)"
     if re.search(r"(?m)^\s*(#|[-*•]\s)", t):
         return "형식(제목·목록)"
     bad = unsupported_numbers(t, allowed_text)
@@ -390,6 +410,7 @@ def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=d
     except Exception as ex:
         log(f"[뉴스 수집 실패] {code}: {type(ex).__name__}")
         articles = []
+    articles = [a for a in articles if not find_sensational(a.get("title", ""))]   # 자극적인 제목의 기사는 뺀다
     articles = _prefer_relevant(price.get("stock_name") or code, articles)
     investors = None
     if investors_fn:
