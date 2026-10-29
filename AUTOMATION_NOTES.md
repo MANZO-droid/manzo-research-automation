@@ -854,3 +854,19 @@ daily_gainers 리포트가 있는지 확인해서 빠지면 워크플로 자체�
 - 테스트: `python -m unittest tests.test_member_report -v` (28개, 네트워크·Groq·Supabase 불필요).
 - **미검증**: 실제 Groq가 쓴 문장이 검증을 통과하는 비율(이 PC에는 GROQ_API_KEY가 없어 수치 위주 기본형만 확인함),
   GitHub Actions에서의 실행. 수동 워크플로를 한 번 돌려 AI 문단이 포함된 견본을 회장님이 직접 읽어 보는 것이 공개 조건이다.
+
+## 2026-10-29: 회원 종목 리포트 P4 — 요청 처리·Resend 발송기·한도 초과 알림 (발송 승인 전)
+
+P3(`member_report.py`) 위에 요청 처리와 메일 발송 부분을 더했다. 설계서(manzo-site `docs/superpowers/specs/2026-10-25-member-report-addendum.md` §7, §7-2)가 정본이다.
+
+- `scripts/member_report_mail.py`: `ResendSender`(실패 사유에 상태 코드만, 메일 주소·본문 없음), 한도 초과 알림(회원 닉네임·횟수·시각만 담은
+  요약 1통, 같은 회원·같은 날 1통, 날짜가 지난 뒤 늘어난 시도는 다음 날 합산, 종목·이메일·보유 정보 없음), 발송 승인 장치 `send_gate`.
+- `scripts/member_report_process.py`: 기본은 **점검 모드**(대기 요청·한도 초과 기록 개수만 읽음, DB 수정·메일 없음). `--send`는
+  승인 장치(`MEMBER_REPORT_SEND_APPROVED=yes` + `RESEND_API_KEY` + `MAIL_FROM`)를 모두 통과해야만 요청 처리·발송을 한다.
+  통과 못 하면 아무것도 하지 않고 종료 코드 2.
+- `.github/workflows/member-report-process.yml`: 수동 실행 전용(스케줄 없음), `send` 입력 기본 false.
+- 이 저장소 규칙(CLAUDE.md 8번)의 "외부 발송은 직전 명시적 승인" 은 **회장님이 저장소 변수 `MEMBER_REPORT_SEND_APPROVED=yes` 를 직접 등록**하는 것으로 구현했다.
+- 테스트: `python -m unittest tests.test_member_report tests.test_member_report_mail -v` (60개). 승인 장치를 항상 통과시키면 테스트가 실패하는 것을 확인.
+- **미검증**: Resend 실제 발송(키·보내는 주소 없음, 도메인 없어 시험용 보낸 주소는 가입 이메일로만 가능 - Resend 공식 문서로 재확인 필요),
+  GitHub Actions 실행, 사이트 DB `member_stock_reports` 표(운영 적용 보류 중이라 리포트 재사용 저장이 아직 안 됨).
+- 아직 없는 것: 요청 접수 직후 깨우기(사이트 Vercel API)와 안전망 주기 실행. 첫 실발송 시험 후 별도로 연결한다.
