@@ -62,6 +62,14 @@ class BannedTests(unittest.TestCase):
                   "비중 확대가 필요합니다", "상승 여력이 큽니다", "반등할 수 있습니다", "투자의견 상향"]:
             self.assertTrue(mr.find_banned(s), "걸러져야 함: " + s)
 
+    def test_net_flow_terms_are_allowed_but_advice_is_not(self):
+        # 수급 수치의 이름("순매수·순매도")은 사실이므로 허용
+        for s in ["외국인은 2,101.7억원 순매도, 기관은 1,340.7억원 순매수를 기록했습니다.", "개인 순매수가 693.7억원입니다."]:
+            self.assertEqual(mr.find_banned(s), [], "허용되어야 함: " + s)
+        # 행동 권유·평가로 쓰이는 매수·매도는 여전히 막는다
+        for s in ["매수 의견이 나왔습니다", "지금이 매도 시점입니다", "외국인 매도세가 강합니다", "기관 매수세가 이어집니다", "분할 매수 전략"]:
+            self.assertTrue(mr.find_banned(s), "걸러져야 함: " + s)
+
     def test_clean_sentences_pass(self):
         for s in ["종가는 215,500원이며 20일선보다 6.3% 낮습니다.", "이동평균은 역배열 상태입니다.", "공장이 가동을 시작했다는 기사가 있습니다."]:
             self.assertEqual(mr.find_banned(s), [], "통과해야 함: " + s)
@@ -127,6 +135,39 @@ class ValidateAiTests(unittest.TestCase):
         self.assertIn("금지 표현", reason)
         self.assertEqual(len(calls), 2)
 
+    def test_on_reject_receives_rejected_text_and_reason(self):
+        bad = "삼성전자의 종가는 215,500원입니다. 앞으로 주가가 오를 가능성이 높아 매수 의견을 제시합니다. 충분한 길이를 맞추기 위한 문장입니다."
+        seen = []
+        mr.ai_explanation(lambda p: bad, "삼성전자", "005930", mr.build_facts(PRICE), [], on_reject=lambda t, r: seen.append((t, r)))
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0][0], bad)
+        self.assertIn("금지 표현", seen[0][1])
+
+    def test_prompt_asks_polite_style_and_signed_net_buy_only(self):
+        p = mr.build_prompt("삼성전자", "005930", "x", [])
+        self.assertIn("존댓말", p)
+        self.assertIn("부호까지 그대로", p)
+        self.assertIn("(순매도)", p)          # '순매도' 부연을 쓰지 말라는 지시
+        self.assertIn("자극적인 표현", p)
+        self.assertIn("2~3개", p)
+
+    def test_net_sell_wording_and_sensational_words_are_rejected(self):
+        allowed = mr.facts_text(mr.build_facts(PRICE, {"foreign": -2.1e11, "institution": 1.3e11, "individual": 6.9e10}))
+        base = "삼성전자의 종가는 215,500원(2026-10-23 기준)이며 20일선보다 6.3% 낮은 위치에 있습니다. 이동평균 배열은 역배열입니다. "
+        # 부호가 있는 "순매수" 값으로만 표기하면 통과한다
+        self.assertIsNone(mr.validate_ai_text(base + "외국인 순매수 -2,100.0억원, 기관 순매수 +1,300.0억원입니다. 기사에서는 공장 가동이 확인됩니다.", allowed))
+        r1 = mr.validate_ai_text(base + "외국인은 순매도했고 기사에서는 공장 가동이 확인됩니다.", allowed)
+        self.assertIsNotNone(r1)
+        self.assertIn("순매도", r1)
+        r2 = mr.validate_ai_text(base + "증시 폭락 속에서도 기사에서는 공장 가동이 확인됩니다.", allowed)
+        self.assertIsNotNone(r2)
+        self.assertIn("자극적", r2)
+        r3 = mr.validate_ai_text(base + "이어서 대반전 시나리오가 언급되었다는 기사가 있습니다.", allowed)
+        self.assertIn("자극적", r3)
+
+    def test_prompt_mentions_net_flow_wording(self):
+        self.assertIn("순매수", mr.build_prompt("삼성전자", "005930", "x", []))
+
     def test_prompt_contains_rules_and_no_member_data(self):
         p = mr.build_prompt("삼성전자", "005930", "종가: 215,500원", NEWS[:1])
         for must in ["순수 한국어", "목표가", "지어내지", "제공된 수치"]:
@@ -188,6 +229,90 @@ class RenderTests(unittest.TestCase):
         r = mr.build_report("005930", PRICE, NEWS, None, GOOD_AI)
         for word in ("평균단가", "평균 매수가", "평가손익", "수량"):
             self.assertNotIn(word, r["text"])
+
+
+class NewsFetchAndTextNormalizeTests(unittest.TestCase):
+    def test_news_window_is_based_on_today_not_trade_date(self):
+        calls = []
+        class FakeCg:
+            @staticmethod
+            def fetch_stock_news(code, date, max_articles, days_before, days_after):
+                calls.append((code, date, days_before, days_after))
+                return []
+        fetch = mr.make_news_fn(FakeCg, today="2026-10-28")
+        fetch("005930", "2026-10-27")          # 시세일(10/27)이 아니라 오늘(10/28) 기준으로 찾아야 한다
+        self.assertEqual(calls, [("005930", "2026-10-28", 7, 1)])
+
+    def test_odd_minus_signs_become_ascii_hyphen(self):
+        self.assertEqual(mr.normalize_ai_text("52주 고점 대비 ‑38.1%, 순매수 −3,546.3억원, –14.8%"),
+                         "52주 고점 대비 -38.1%, 순매수 -3,546.3억원, -14.8%")
+        self.assertEqual(mr.normalize_ai_text("20일선-60일선 사이"), "20일선-60일선 사이")   # 숫자 앞이 아닌 하이픈은 그대로
+
+    def test_ai_explanation_normalizes_minus_before_validation(self):
+        good = ("삼성전자의 종가는 215,500원(2026-10-23 기준)으로 20일선보다 6.3% 낮은 위치에 있습니다. 52주 고점 대비 ‑28.2% 수준이며, "
+                "이동평균은 역배열입니다.\n\n최근 수집된 관련 기사가 없습니다.")
+        text, reason = mr.ai_explanation(lambda p: good, "삼성전자", "005930", mr.build_facts(PRICE), [])
+        self.assertIsNone(reason)
+        self.assertIn("대비 -28.2%", text)
+        self.assertNotIn("‑", text)
+
+    def test_prompt_asks_position_wording_not_up_down(self):
+        self.assertIn("높은/낮은 위치", mr.build_prompt("삼성전자", "005930", "x", []))
+
+
+class SensationalNewsTests(unittest.TestCase):
+    @staticmethod
+    def _n(title):
+        return {"title": title, "summary": "", "date": "2026-10-26", "url": "https://n.news.naver.com/x"}
+
+    def test_find_sensational(self):
+        for s in ["레버리지에 6조 날린 개미들 패닉", "폭락장에 피눈물 흘리는데", "'9천피' 대반전 시나리오 떴다", "곡소리 나는 증시"]:
+            self.assertTrue(mr.find_sensational(s), "걸러져야 함: " + s)
+        for s in ["삼성전자, 새 반도체 공장 가동", "3분기 실적 발표 앞두고 주주환원책 주목", "코스피 5,500선 내줘"]:
+            self.assertEqual(mr.find_sensational(s), [], "통과해야 함: " + s)
+
+    def test_generate_drops_sensational_titles_before_report_and_ai(self):
+        arts = [self._n("삼성전자, 신제품 출시"), self._n("삼성전자 실적 발표"), self._n("삼성전자 주주환원책"),
+                self._n("폭락장에 피눈물 흘리는 삼성전자 개미"), self._n("삼성전자 대반전 시나리오")]
+        seen_prompts = []
+        r = mr.generate("005930", PRICE, lambda c, d: arts, None, lambda p: seen_prompts.append(p) or "")
+        for word in ("폭락장", "피눈물", "대반전"):
+            self.assertNotIn(word, r["text"])
+            self.assertNotIn(word, "\n".join(p.split("기사:")[-1] for p in seen_prompts))
+        self.assertIn("삼성전자 실적 발표", r["text"])
+
+    def test_all_sensational_means_no_news_message(self):
+        arts = [self._n("삼성전자 폭락"), self._n("삼성전자 패닉")]
+        r = mr.generate("005930", PRICE, lambda c, d: arts)
+        self.assertIn("최근 수집된 관련 기사가 없습니다", r["text"])
+
+
+class RelevantNewsTests(unittest.TestCase):
+    @staticmethod
+    def _n(title, summary=""):
+        return {"title": title, "summary": summary, "date": "2026-10-26", "url": "https://n.news.naver.com/x"}
+
+    def test_keeps_only_articles_mentioning_the_stock_when_enough(self):
+        arts = [self._n("삼성전자, 신제품 출시"), self._n("엉뚱한 회사 소식", "삼성전자와 무관"), self._n("스마트폰 시장", "삼성전자 점유율"),
+                self._n("전혀 다른 기사", "아무 관련 없음"), self._n("삼성전자 3분기 실적 발표")]
+        got = [a["title"] for a in mr._prefer_relevant("삼성전자", arts)]
+        self.assertEqual(got, ["삼성전자, 신제품 출시", "엉뚱한 회사 소식", "스마트폰 시장", "삼성전자 3분기 실적 발표"])
+
+    def test_falls_back_to_all_when_fewer_than_three_match(self):
+        arts = [self._n("삼성전자 소식"), self._n("다른 기사 1"), self._n("다른 기사 2")]
+        self.assertEqual(len(mr._prefer_relevant("삼성전자", arts)), 3)
+
+    def test_caps_at_news_max_and_dedupes(self):
+        arts = [self._n(f"삼성전자 기사 {i}") for i in range(20)] + [self._n("삼성전자 기사 0")]
+        got = mr._prefer_relevant("삼성전자", arts)
+        self.assertEqual(len(got), mr.NEWS_MAX)
+        self.assertEqual(len({a["title"] for a in got}), mr.NEWS_MAX)
+
+    def test_generate_uses_relevant_articles_for_report(self):
+        arts = [self._n("삼성전자, 신제품 출시"), self._n("삼성전자 실적 발표"), self._n("삼성전자 주주환원"), self._n("크린앤사이언스 해외 매출")]
+        r = mr.generate("005930", PRICE, lambda c, d: arts)
+        self.assertNotIn("크린앤사이언스", r["text"])
+        self.assertIn("삼성전자 실적 발표", r["text"])
 
 
 class GenerateTests(unittest.TestCase):

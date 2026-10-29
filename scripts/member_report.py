@@ -41,7 +41,8 @@ NEWS_MAX = 8
 # 행동 권유(매수·매도 등), 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 평가(저평가 등)는 쓰지 않는다.
 # 보수적으로 잡았으므로 정상 문장이 걸려 기본형으로 대체될 수 있다(그쪽이 안전하다).
 BANNED_PATTERNS = [
-    r"매수", r"매도", r"추천", r"목표\s?(주)?가", r"전망", r"예상", r"예측", r"기대", r"유망",
+    # "순매수·순매도"는 수급 수치의 이름(사실)이라 허용하고, 행동 권유로 쓰이는 "매수 의견"·"매도 신호" 등은 막는다.
+    r"(?<!순)매수", r"(?<!순)매도", r"추천", r"목표\s?(주)?가", r"전망", r"예상", r"예측", r"기대", r"유망",
     r"상승\s?여력", r"하락\s?여력", r"사야", r"팔아", r"사라", r"팔라", r"손절", r"익절",
     r"비중\s?(확대|축소|조절)", r"담아", r"관망", r"투자\s?의견", r"저평가", r"고평가", r"적정\s?주가",
     r"(오를|내릴|상승할|하락할|반등할|돌파할|넘을|깰)\s?(것|가능|듯|수)",
@@ -50,6 +51,20 @@ BANNED_PATTERNS = [
     r"(?i:\b(buy|sell|hold|target\s?price)\b)",
 ]
 _BANNED_RE = re.compile("|".join("(?:%s)" % p for p in BANNED_PATTERNS))
+
+# ─── 안전장치 1-2: 자극적인 표현 (회장님 지시 2026-10-28: "폭락장·대반전 시나리오 같은 표현은 가능하면 걸러달라") ─────────
+# 뉴스 제목에 이 표현이 있으면 그 기사는 리포트에서 뺀다. AI 설명문에 쓰이면 그 문단을 버린다.
+SENSATIONAL_PATTERNS = [
+    r"폭락", r"폭등", r"폭망", r"폭증", r"패닉", r"피눈물", r"눈물", r"충격", r"쇼크", r"대반전", r"반전", r"시나리오",
+    r"멘붕", r"지옥", r"대박", r"쪽박", r"떡상", r"떡락", r"곡소리", r"난리", r"공포", r"광풍", r"대란", r"붕괴", r"초토화",
+    r"비명", r"아수라장", r"아우성",
+]
+_SENSATIONAL_RE = re.compile("|".join(SENSATIONAL_PATTERNS))
+
+
+def find_sensational(text):
+    return [m.group(0) for m in _SENSATIONAL_RE.finditer(text or "")]
+
 
 # ─── 안전장치 2: 외국어 섞임 (collect_gainers.has_language_issue 와 같은 범위) ──────────
 _FOREIGN_RE = re.compile("[぀-ヿ฀-๿一-鿿ƀ-ɏḀ-ỿ]")
@@ -175,11 +190,15 @@ def build_prompt(name, code, ftext, articles):
 
 [작성 규칙]
 - 2~3개 문단, 전체 500자 이내. 제목·목록·마크다운 없이 줄글로 씁니다.
-- 첫 문단: 수치로 본 현재 위치(종가, 이동평균 대비, 52주 고점·저점 대비)를 설명합니다.
+- 문장은 "~입니다", "~했습니다" 같은 존댓말로 씁니다. "~이다", "~했다" 같은 반말체는 쓰지 않습니다.
+- 첫 문단: 수치로 본 현재 위치를 설명합니다. 표에 이미 있는 수치를 전부 나열하지 말고, 가장 두드러진 2~3개만 골라 쓰세요.
 - 둘째 문단: 기사에서 확인되는 최근 사건·이슈를 사실대로 요약합니다. 기사에 없는 내용은 절대 지어내지 마세요.
+- 이동평균선·52주 고점·저점 대비 수치는 기준선보다 "높은/낮은 위치"라고 표현하세요. 그 수치를 보고 "상승했다·하락했다"고 쓰지 마세요(변동이 아니라 위치입니다).
 - 숫자는 아래 '제공된 수치'와 기사에 있는 값만, 표기 그대로 쓰세요. 계산하거나 반올림해서 새 숫자를 만들지 마세요.
 - 금지: 매수·매도·보유·손절 등 행동 권유, 목표가, 전망·예상·예측·기대, "~할 것", "~가능성", 호재·악재 같은 평가, 투자의견.
   과거와 현재의 사실만 씁니다.
+- 수급(거래 흐름)을 언급할 때는 제공된 값을 부호까지 그대로 "외국인 순매수 -2,101.7억원"처럼 쓰세요. "순매도"라는 말과 괄호 부연("(순매도)" 등)은 쓰지 마세요. 그 밖의 "매수세·매도세" 같은 표현도 쓰지 마세요.
+- 자극적인 표현(폭락·폭등·패닉·충격·대반전·시나리오 등)은 쓰지 말고, 차분한 서술로 씁니다.
 - 기사가 없으면 둘째 문단은 "최근 수집된 관련 기사가 없습니다."라고만 씁니다.
 
 종목: {name} ({code})
@@ -204,6 +223,11 @@ def validate_ai_text(text, allowed_text, lang_check=default_lang_check):
     hits = find_banned(t)
     if hits:
         return "금지 표현: " + ", ".join(sorted(set(hits))[:5])
+    spicy = find_sensational(t)
+    if spicy:
+        return "자극적 표현: " + ", ".join(sorted(set(spicy))[:5])
+    if "순매도" in t:
+        return "표기 규칙: '순매도' 사용(부호 있는 순매수 값으로만 표기)"
     if re.search(r"(?m)^\s*(#|[-*•]\s)", t):
         return "형식(제목·목록)"
     bad = unsupported_numbers(t, allowed_text)
@@ -212,17 +236,37 @@ def validate_ai_text(text, allowed_text, lang_check=default_lang_check):
     return None
 
 
-def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_check, attempts=2):
-    """(설명문 또는 None, 마지막 거절 사유). 거절되면 한 번 더 시도하고, 그래도 안 되면 None."""
+_ODD_MINUS_RE = re.compile("[‐‑‒–−](?=\\d)")
+
+
+def normalize_ai_text(text):
+    """AI가 숫자 앞 마이너스를 하이픈 모양의 다른 문자(‑, −, –)로 쓰는 경우가 있어 일반 '-'로 바꾼다."""
+    return _ODD_MINUS_RE.sub("-", text or "")
+
+
+def make_news_fn(cg, today=None):
+    """네이버 종목 뉴스 수집 함수를 만든다. 기준은 시세일이 아니라 '오늘(KST) 기준 최근 7일'이다.
+    (시세일 기준으로 찾으면, 맨 앞 페이지가 전부 시세일 이후 기사일 때 수집이 0건으로 끝난다 - 2026-10-28 실제 확인)"""
+    def fetch(code, trade_date):
+        d = today or datetime.now(KST).strftime("%Y-%m-%d")
+        return cg.fetch_stock_news(code, d, max_articles=12, days_before=7, days_after=1)
+    return fetch
+
+
+def ai_explanation(call, name, code, facts, articles, lang_check=default_lang_check, attempts=2, on_reject=None):
+    """(설명문 또는 None, 마지막 거절 사유). 거절되면 한 번 더 시도하고, 그래도 안 되면 None.
+    on_reject(text, reason): 거절된 문장을 확인용으로 받아 볼 수 있는 선택 콜백(견본 점검용)."""
     ftext = facts_text(facts)
     allowed = ftext + "\n" + "\n".join(f"{a.get('title', '')} {a.get('summary', '')} {a.get('date', '')}" for a in articles)
     prompt = build_prompt(name, code, ftext, articles)
     reason = "AI 호출 안 함"
     for _ in range(attempts):
-        text = (call(prompt) or "").strip()
+        text = normalize_ai_text((call(prompt) or "").strip())
         reason = validate_ai_text(text, allowed, lang_check)
         if reason is None:
             return text, None
+        if on_reject:
+            on_reject(text, reason)
     return None, reason
 
 
@@ -232,7 +276,15 @@ def _safe_url(u):
     return u if re.match(r"^https?://", u, re.I) else ""
 
 
-def _dedupe_news(articles):
+def _prefer_relevant(name, articles):
+    """종목 이름이 제목·요약에 나오는 기사만 고른다(네이버 종목 뉴스 피드에는 무관한 기사도 섞여 온다).
+    그런 기사가 3건 미만이면 걸러내지 않고 전체를 쓴다(뉴스가 텅 비는 것보다 낫다). 반환 길이는 NEWS_MAX 이하."""
+    every = _dedupe_news(articles, limit=50)
+    matched = [a for a in every if name and name in (a["title"] + " " + a.get("summary", ""))]
+    return (matched if len(matched) >= 3 else every)[:NEWS_MAX]
+
+
+def _dedupe_news(articles, limit=NEWS_MAX):
     seen, out = set(), []
     for a in articles or []:
         # 네이버가 제목에 &quot; 같은 HTML 코드를 그대로 담아 주므로 먼저 풀어 둔다(표시할 때 한 번만 이스케이프한다)
@@ -241,7 +293,7 @@ def _dedupe_news(articles):
             continue
         seen.add(t)
         out.append(dict(a, title=t, summary=html.unescape(a.get("summary") or "")))
-        if len(out) >= NEWS_MAX:
+        if len(out) >= limit:
             break
     return out
 
@@ -369,13 +421,15 @@ class ReportMaker:
         return report
 
 
-def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=default_lang_check, log=print):
+def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=default_lang_check, log=print, on_reject=None):
     """수집(뉴스·수급) → AI 설명(검증 통과 시) → 조립. 저장은 하지 않는다."""
     try:
         articles = news_fn(code, price["trade_date"]) or []
     except Exception as ex:
         log(f"[뉴스 수집 실패] {code}: {type(ex).__name__}")
         articles = []
+    articles = [a for a in articles if not find_sensational(a.get("title", ""))]   # 자극적인 제목의 기사는 뺀다
+    articles = _prefer_relevant(price.get("stock_name") or code, articles)
     investors = None
     if investors_fn:
         try:
@@ -385,7 +439,8 @@ def generate(code, price, news_fn, investors_fn=None, ai_call=None, lang_check=d
     ai_text = None
     if ai_call:
         facts = build_facts(price, investors)
-        ai_text, reason = ai_explanation(ai_call, price.get("stock_name") or code, code, facts, _dedupe_news(articles), lang_check)
+        ai_text, reason = ai_explanation(ai_call, price.get("stock_name") or code, code, facts, _dedupe_news(articles), lang_check,
+                                         on_reject=on_reject)
         if ai_text is None:
             log(f"[AI 설명 버림 → 기본형] {code}: {reason}")
     return build_report(code, price, articles, investors, ai_text)
@@ -466,6 +521,7 @@ def main(argv=None):
     ap.add_argument("--price-json", help="시세 행(JSON 파일). 없으면 Supabase member_prices 에서 읽음")
     ap.add_argument("--news-json", help="뉴스 목록(JSON 파일). 없으면 네이버에서 수집")
     ap.add_argument("--no-investors", action="store_true", help="수급 수집 생략")
+    ap.add_argument("--show-rejected", action="store_true", help="검증에서 버려진 AI 문장과 사유를 출력(견본 점검용)")
     a = ap.parse_args(argv)
     if not re.fullmatch(r"\d{6}", a.preview):
         sys.exit("종목코드는 숫자 6자리여야 합니다")
@@ -493,7 +549,7 @@ def main(argv=None):
             _news = json.load(f)
         news_fn = lambda c, d: _news
     else:
-        news_fn = lambda c, d: cg.fetch_stock_news(c, d, max_articles=12, days_before=7, days_after=0)
+        news_fn = make_news_fn(cg)
     investors_fn = None
     if not a.no_investors:
         def investors_fn(c, close):
@@ -507,7 +563,10 @@ def main(argv=None):
     elif not a.no_ai:
         print("[안내] GROQ_API_KEY 가 없어 AI 설명 없이 기본형으로 만듭니다.")
 
-    report = generate(code, price, news_fn, investors_fn, ai_call)
+    def show_rejected(text, reason):
+        print(f"[버려진 AI 문장] 사유: {reason}\n---\n{text}\n---")
+
+    report = generate(code, price, news_fn, investors_fn, ai_call, on_reject=show_rejected if a.show_rejected else None)
     os.makedirs(a.out, exist_ok=True)
     stem = os.path.join(a.out, f"member-report-{code}-{report['report_date']}")
     with open(stem + ".html", "w", encoding="utf-8") as f:
