@@ -16,6 +16,11 @@
   3. 상승이유·차트분석이 비어있는 행 - 뉴스 재수집 + LLM 재시도 1회. 그래도
      비면(=진짜 뉴스가 없는 경우와 구분 불가) 고치지 않고 alert_only로 남긴다
      (없는 사실을 지어내지 않기 위함).
+  4. 재무정보(financials)가 비어있는 행(daily/weekly 모두) - 네이버 재무 API
+     재조회 1회. 신규상장 직후라 네이버가 아직 실제 발표 실적을 안 올려놓은
+     경우가 있다(2026-10-31 멜콘 사례 - 상장은 인텔리빅스보다 빨랐는데도
+     네이버 쪽 반영이 늦었음). 그래도 비면 alert_only로 남기고, 네이버가
+     나중에 채워 넣으면 다음 실행 때 자동으로 따라잡는다.
 
 자동으로 고치지 않는 것(알림만): 위 재시도로도 안 풀리는 것, market_scope
 (자체 공백 연장 로직이 따로 있어 겹치지 않게 제외).
@@ -35,7 +40,7 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect_gainers import (  # noqa: E402
     load_env, classify_excluded, fetch_ohlcv, calc_technicals, calc_ma_lines,
-    fetch_stock_news_staged, news_to_dicts, analyze_stock, KST,
+    fetch_stock_news_staged, news_to_dicts, analyze_stock, fetch_financials, KST,
 )
 from krx_calendar import is_trading_day  # noqa: E402
 from backfill_krx_historical import backfill_date  # noqa: E402
@@ -220,6 +225,46 @@ def repair_empty_analysis(client) -> bool:
     return all_ok
 
 
+# ── 4) 빈 재무정보(financials) 재시도 ───────────────────────────────────────
+
+def find_empty_financials_rows(days: int) -> list[dict]:
+    since = (datetime.now(KST).date() - timedelta(days=days)).strftime("%Y-%m-%d")
+    rows = sb_get(
+        "daily_gainers",
+        f"select=trade_date,rank,report_type,ticker,name,financials&trade_date=gte.{since}",
+    )
+    return [r for r in rows if not r.get("financials")]
+
+
+def repair_empty_financials() -> bool:
+    rows = find_empty_financials_rows(LOOKBACK_DAYS)
+    if not rows:
+        return True
+    all_ok = True
+    for r in rows:
+        date_str, ticker, name, report_type = r["trade_date"], r["ticker"], r["name"], r["report_type"]
+        try:
+            fin = fetch_financials(ticker)
+            if fin:
+                sb_patch_rows("daily_gainers", [{
+                    "trade_date": date_str, "rank": r["rank"], "report_type": report_type,
+                    "financials": fin, "updated_at": datetime.now(KST).isoformat(),
+                }], "trade_date,rank,report_type")
+                log_repair("gainers", date_str, f"{name} 재무정보 공란", "financials_retry", True,
+                          {"ticker": ticker})
+            else:
+                # 네이버에 아직 실제 발표 실적이 없는 경우(신규상장 등)와 구분이 안
+                # 되므로 값을 지어내지 않는다 - 네이버가 올리면 다음 실행 때 채워진다.
+                log_repair("gainers", date_str, f"{name} 재무정보 공란", "alert_only", False,
+                          {"ticker": ticker, "note": "네이버에 아직 실제 발표 실적 없음 - 올라오면 다음 실행 때 자동 반영"})
+                all_ok = False
+        except Exception as e:
+            log_repair("gainers", date_str, f"{name} 재무정보 공란", "alert_only", False,
+                      {"ticker": ticker, "error": str(e)})
+            all_ok = False
+    return all_ok
+
+
 def main():
     load_env()
     for k in ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]:
@@ -241,9 +286,10 @@ def main():
     ok1 = repair_gaps_and_counts(groq_client)
     ok2 = repair_rule_violations(groq_client)
     ok3 = repair_empty_analysis(groq_client)
+    ok4 = repair_empty_financials()
 
-    print(f"[자동 수리 종료] 날짜공백/건수={ok1}, 규정위반={ok2}, 빈분석={ok3}")
-    if ok1 and ok2 and ok3:
+    print(f"[자동 수리 종료] 날짜공백/건수={ok1}, 규정위반={ok2}, 빈분석={ok3}, 빈재무정보={ok4}")
+    if ok1 and ok2 and ok3 and ok4:
         print("모든 이슈가 자동으로 해결됐습니다(또는 애초에 없었습니다).")
         sys.exit(0)
     print("일부 이슈는 자동으로 해결되지 않았습니다 - repair_log를 확인하세요.")
