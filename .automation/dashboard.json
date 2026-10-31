@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-10-26T11:30:13.651Z",
+  "updated_at": "2026-10-31T04:23:06.469Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -177,6 +177,26 @@
   "recent_events": [
     {
       "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-37c3b61d-53a4-4e60-b533-c3d7a2547a6c",
+      "event_type": "feature",
+      "occurred_at": "2026-10-31T04:23:06.369Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "회원 리포트 발송 수단을 Gmail(앱 비밀번호)로 결정: GmailSmtpSender 추가, 발송 수단 선택·승인 장치 확장. 테스트 70개",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-ab1446c5-4609-4438-b975-d1a7789dbdba",
+      "event_type": "feature",
+      "occurred_at": "2026-10-29T15:00:01.346Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "회원 리포트 P4: Resend 발송기·한도 초과 알림·요청 처리 명령 추가. 기본은 점검 모드, 실제 발송은 승인 변수(MEMBER_REPORT_SEND_APPROVED=yes)+키 필요. 테스트 60개",
+      "data": {}
+    },
+    {
+      "schema": "semiclass-automation-event/v1",
       "event_id": "evt-eb72df14-bb82-4431-b627-d1a94bcedc16",
       "event_type": "feature",
       "occurred_at": "2026-10-26T11:30:13.594Z",
@@ -273,26 +293,6 @@
       "actor": "agent",
       "run_id": null,
       "message": "회장님 지적으로 발견: Supabase 전환 시 과거 JSON 데이터 백필 누락 → scripts/backfill_json_to_supabase.py로 gainers 14개 날짜·market-scope 31개 날짜 전부 복구, 사이트 API에서 실측 확인",
-      "data": {}
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-33158b70-8cd1-41ee-883b-7da2f1710b5d",
-      "event_type": "verification",
-      "occurred_at": "2026-08-01T11:08:26.212Z",
-      "actor": "agent",
-      "run_id": null,
-      "message": "Supabase 전환 종단 검증 완료: GH Actions gainers-daily 재실행 성공(daily_gainers weekly 7종목 rise_reason 포함 upsert), market_scope_reports 로컬 백필 성공, Vercel API 두 개 모두 최신 데이터 서빙 확인",
-      "data": {}
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-5fe87b37-3c0e-4e85-b4e3-d0da63c2ce33",
-      "event_type": "automation-changed",
-      "occurred_at": "2026-08-01T10:48:47.414Z",
-      "actor": "agent",
-      "run_id": null,
-      "message": "상승률/마켓스코프 파이프라인을 사이트 JSON 하드코딩+git push에서 Supabase 직접 저장으로 전환. GH Actions 동작 검증 완료(gainers 성공 확인, market-scope 미검증)",
       "data": {}
     }
   ],

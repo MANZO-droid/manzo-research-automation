@@ -393,6 +393,13 @@ class Db:
         r = self.s.get(f"{self.url}/auth/v1/admin/users/{user_id}", headers=self._h(), timeout=30)
         return (r.json().get("email") if r.ok else None) or None
 
+    def user_nickname(self, user_id):
+        """회장님 알림용 닉네임. 이메일로 대신하지 않는다(없으면 None)."""
+        r = self.s.get(f"{self.url}/auth/v1/admin/users/{user_id}", headers=self._h(), timeout=30)
+        if not r.ok:
+            return None
+        return ((r.json().get("user_metadata") or {}).get("nickname")) or None
+
 
 # ─── 리포트 만들기(종목·날짜별 재사용) ────────────────────────────────────────────────
 class ReportMaker:
