@@ -7,7 +7,8 @@
                                                      # 발송 승인 장치(member_report_mail.send_gate)를 통과하지 못하면 아무것도 하지 않고 종료 코드 2.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (모든 모드)
-  --send 에서 추가: GROQ_API_KEY(없으면 AI 설명 없는 기본형), RESEND_API_KEY, MAIL_FROM, MEMBER_REPORT_SEND_APPROVED=yes,
+  --send 에서 추가: GROQ_API_KEY(없으면 AI 설명 없는 기본형), MEMBER_REPORT_SEND_APPROVED=yes,
+                   발송 수단: GMAIL_ADDRESS + GMAIL_APP_PASSWORD (또는 RESEND_API_KEY + MAIL_FROM),
                    ADMIN_ALERT_EMAIL(없으면 한도 초과 알림만 생략)
 이 스크립트는 로그에 회원 이메일·종목코드를 남기지 않는다(개수만 출력).
 """
@@ -93,7 +94,8 @@ def main(argv=None):
         return v if any(v.values()) else None
 
     maker = mr.ReportMaker(db, mr.make_news_fn(cg), investors_fn, ai_call)
-    sender = mm.ResendSender(os.environ["RESEND_API_KEY"], os.environ["MAIL_FROM"])
+    sender = mm.build_sender(os.environ)          # Gmail(앱 비밀번호) 또는 Resend. 승인 장치를 이미 통과한 환경이다.
+    print(f"[발송 수단] {mm.send_provider(os.environ)}")
     out = process_all(db, sender, maker, (os.environ.get("ADMIN_ALERT_EMAIL") or "").strip() or None)
     print("[처리 결과] " + ", ".join(f"{k} {v}" for k, v in out.items()))
     return 1 if (out["error"] or out["alert_error"]) else 0

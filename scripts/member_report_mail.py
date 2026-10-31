@@ -7,29 +7,102 @@
   - ResendSender : Resend(메일 API)로 한 통을 보낸다. 실패 사유에는 메일 주소·본문을 넣지 않는다.
   - 한도 초과 알림: 회원이 하루 한도(3건)를 넘겨 요청을 시도하면 회장님께 요약 메일 1통(회원 닉네임·횟수·시각만).
                     종목코드·이메일·보유 정보는 담지 않는다(회장님은 회원 개인의 보유를 보지 않는다는 원칙).
+  - GmailSmtpSender : Gmail(앱 비밀번호)로 보낸다. 도메인이 필요 없고 무료다(하루 500통, Google 공식 안내). 2026-10-31 회장님 선택.
   - 발송 승인 장치: 이 저장소 규칙(CLAUDE.md 8번)상 외부 발송은 직전 명시적 승인이 필요하다. 아래가 모두 갖춰질 때만 실제 발송한다.
-        MEMBER_REPORT_SEND_APPROVED=yes (회장님이 저장소 변수로 직접 등록), RESEND_API_KEY, MAIL_FROM
-    하나라도 없으면 발송하지 않는다.
+        MEMBER_REPORT_SEND_APPROVED=yes (회장님이 저장소 변수로 직접 등록)
+        + 발송 수단 하나: GMAIL_ADDRESS + GMAIL_APP_PASSWORD   또는   RESEND_API_KEY + MAIL_FROM
+    하나라도 모자라면 발송하지 않는다. 둘 다 있으면 Gmail을 쓴다.
 """
 import html
 import re
+import smtplib
 from datetime import timedelta
+from email.message import EmailMessage
+from email.utils import formataddr
 
 RESEND_URL = "https://api.resend.com/emails"
 DAILY_LIMIT = 3                      # 사이트 DB 함수 member_request_report 의 하루 한도와 같은 값
 _EMAIL_LIKE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_SINGLE_ADDR = re.compile(r"^[^\s@,;<>\"']+@[^\s@,;<>\"']+\.[^\s@,;<>\"']+$")
 
 
 # ─── 발송 승인 장치 ───────────────────────────────────────────────────────────────
+def _has(env, key):
+    return bool((env.get(key) or "").strip())
+
+
+def send_provider(env):
+    """갖춰진 발송 수단 이름('gmail' | 'resend') 또는 None. 둘 다 있으면 Gmail."""
+    if _has(env, "GMAIL_ADDRESS") and _has(env, "GMAIL_APP_PASSWORD"):
+        return "gmail"
+    if _has(env, "RESEND_API_KEY") and _has(env, "MAIL_FROM"):
+        return "resend"
+    return None
+
+
 def send_gate(env):
-    """(허용 여부, 사유). 승인 변수·키·보내는 주소가 모두 있을 때만 True."""
+    """(허용 여부, 사유). 승인 변수와 발송 수단이 모두 있을 때만 True."""
     if (env.get("MEMBER_REPORT_SEND_APPROVED") or "").strip().lower() != "yes":
         return False, "발송 승인 변수(MEMBER_REPORT_SEND_APPROVED=yes)가 없습니다"
-    if not (env.get("RESEND_API_KEY") or "").strip():
-        return False, "RESEND_API_KEY 가 없습니다"
-    if not (env.get("MAIL_FROM") or "").strip():
-        return False, "MAIL_FROM(보내는 주소)이 없습니다"
+    if send_provider(env) is None:
+        return False, "발송 수단이 없습니다(GMAIL_ADDRESS+GMAIL_APP_PASSWORD 또는 RESEND_API_KEY+MAIL_FROM)"
     return True, "승인됨"
+
+
+def build_sender(env):
+    """승인 장치를 통과한 환경에서 발송기를 만든다. 통과하지 못하면 예외."""
+    ok, why = send_gate(env)
+    if not ok:
+        raise RuntimeError(why)
+    if send_provider(env) == "gmail":
+        return GmailSmtpSender(env["GMAIL_ADDRESS"].strip(), env["GMAIL_APP_PASSWORD"], display_name=(env.get("MAIL_FROM_NAME") or "").strip() or "만조Investment")
+    return ResendSender(env["RESEND_API_KEY"], env["MAIL_FROM"])
+
+
+# ─── Gmail 발송기 ─────────────────────────────────────────────────────────────────
+class GmailSmtpSender:
+    """Gmail SMTP(앱 비밀번호)로 한 통을 보낸다. Gmail은 보낸 사람을 로그인한 계정 주소로 고정한다.
+    실패 사유에는 수신 주소·본문·비밀번호를 넣지 않고, 어떤 종류의 실패인지만 남긴다."""
+
+    def __init__(self, address, app_password, display_name="만조Investment", host="smtp.gmail.com", port=465, smtp_factory=None, timeout=30):
+        if not address or not app_password:
+            raise ValueError("address 와 app_password 가 필요합니다")
+        # 구글이 보여 주는 앱 비밀번호는 4칸씩 띄어쓰기로 표시되므로 공백을 지운다
+        self.address, self.password = address, re.sub(r"\s+", "", app_password)
+        self.display_name, self.host, self.port, self.timeout = display_name, host, port, timeout
+        self._factory = smtp_factory or (lambda h, p, t: smtplib.SMTP_SSL(h, p, timeout=t))
+
+    def _message(self, to, subject, html_body, text_body):
+        if not _SINGLE_ADDR.match(to or ""):
+            raise RuntimeError("수신 주소 형식 오류")
+        msg = EmailMessage()
+        msg["From"] = formataddr((self.display_name, self.address))
+        msg["To"] = to
+        msg["Subject"] = re.sub(r"[\r\n]+", " ", subject or "")      # 헤더 줄바꿈 삽입 방지
+        msg.set_content(text_body or "")
+        msg.add_alternative(html_body or "", subtype="html")
+        return msg
+
+    def send(self, to, subject, html_body, text_body):
+        msg = self._message(to, subject, html_body, text_body)
+        try:
+            smtp = self._factory(self.host, self.port, self.timeout)
+            try:
+                smtp.login(self.address, self.password)
+                smtp.send_message(msg)
+            finally:
+                try:
+                    smtp.quit()
+                except Exception:
+                    pass
+        except smtplib.SMTPAuthenticationError:
+            raise RuntimeError("Gmail 로그인 실패(앱 비밀번호·2단계 인증을 확인하세요)") from None
+        except smtplib.SMTPRecipientsRefused:
+            raise RuntimeError("Gmail 수신 주소 거부") from None
+        except smtplib.SMTPException as ex:
+            raise RuntimeError(f"Gmail SMTP 오류 ({type(ex).__name__})") from None
+        except OSError:
+            raise RuntimeError("Gmail 접속 실패") from None
 
 
 # ─── Resend 발송기 ────────────────────────────────────────────────────────────────

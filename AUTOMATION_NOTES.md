@@ -870,3 +870,19 @@ P3(`member_report.py`) 위에 요청 처리와 메일 발송 부분을 더했다
 - **미검증**: Resend 실제 발송(키·보내는 주소 없음, 도메인 없어 시험용 보낸 주소는 가입 이메일로만 가능 - Resend 공식 문서로 재확인 필요),
   GitHub Actions 실행, 사이트 DB `member_stock_reports` 표(운영 적용 보류 중이라 리포트 재사용 저장이 아직 안 됨).
 - 아직 없는 것: 요청 접수 직후 깨우기(사이트 Vercel API)와 안전망 주기 실행. 첫 실발송 시험 후 별도로 연결한다.
+
+## 2026-10-31: 발송 수단을 Gmail(앱 비밀번호)로 결정 — `GmailSmtpSender`
+
+회장님이 무료 발송 수단으로 Gmail 운영을 선택했다(도메인 없이 아무에게나 발송 가능, Google 공식 안내 기준 하루 500통).
+Resend는 무료 요금제가 있으나 도메인 없이는 가입 이메일로만 보낼 수 있어 후보에서 뒤로 미뤘다(코드는 남겨 둠).
+
+- `member_report_mail.GmailSmtpSender`: smtp.gmail.com:465(SSL). 앱 비밀번호의 띄어쓰기는 지움. 수신 주소 형식·헤더 줄바꿈 삽입을 막고,
+  실패 사유에는 수신 주소·비밀번호 없이 종류만 남김(로그인 실패/수신 주소 거부/SMTP 오류/접속 실패).
+- `send_provider`/`send_gate`/`build_sender`: `GMAIL_ADDRESS`+`GMAIL_APP_PASSWORD` 또는 `RESEND_API_KEY`+`MAIL_FROM` 중 갖춰진 수단을 쓰며
+  둘 다 있으면 Gmail. **`MEMBER_REPORT_SEND_APPROVED=yes`(회장님이 저장소 변수로 직접 등록)가 없으면 어떤 수단도 발송하지 않는다.**
+- 권장: 개인 계정이 아닌 **리포트 발송 전용 Gmail 계정**을 만들어 쓴다(앱 비밀번호가 유출돼도 개인 메일과 분리). 앱 비밀번호는 2단계 인증이 켜진
+  개인 구글 계정에서만 만들 수 있고, 계정 비밀번호를 바꾸면 무효가 된다.
+- 한도 초과 알림은 당분간 같은 발송기로 `ADMIN_ALERT_EMAIL` 에 보낸다(사이트의 웹 푸시로 바꾸는 것은 추후 선택).
+- 테스트 70개(`python -m unittest tests.test_member_report tests.test_member_report_mail -v`). 실제 견본 리포트로 MIME 메시지를 만들어
+  (전송 없이) 제목·본문(text/html)이 한글 그대로 복원되는 것을 확인.
+- **미검증**: 실제 Gmail 로그인·발송(앱 비밀번호 없음), GitHub Actions 서버 IP에서 Gmail 접속이 막히지 않는지, 받는 쪽 스팸함 분류 여부.

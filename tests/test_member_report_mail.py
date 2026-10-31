@@ -3,6 +3,7 @@
 네트워크·Resend·Supabase 없이 가짜(Fake)로만 돈다. 실제 메일은 절대 나가지 않는다."""
 import io
 import os
+import smtplib
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -84,6 +85,116 @@ class SendGateTests(unittest.TestCase):
             env = dict(self.FULL, MEMBER_REPORT_SEND_APPROVED=bad)
             self.assertFalse(mm.send_gate(env)[0], repr(bad))
         self.assertTrue(mm.send_gate(dict(self.FULL, MEMBER_REPORT_SEND_APPROVED=" YES "))[0])
+
+
+class GmailGateTests(unittest.TestCase):
+    GMAIL = {"MEMBER_REPORT_SEND_APPROVED": "yes", "GMAIL_ADDRESS": "report@gmail.com", "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop"}
+
+    def test_gmail_needs_address_and_app_password_and_approval(self):
+        self.assertTrue(mm.send_gate(self.GMAIL)[0])
+        self.assertEqual(mm.send_provider(self.GMAIL), "gmail")
+        for missing in ["MEMBER_REPORT_SEND_APPROVED", "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"]:
+            env = {k: v for k, v in self.GMAIL.items() if k != missing}
+            self.assertFalse(mm.send_gate(env)[0], missing + " 이 없으면 막아야 함")
+
+    def test_gmail_wins_when_both_are_configured(self):
+        env = dict(self.GMAIL, RESEND_API_KEY="k", MAIL_FROM="a@b.c")
+        self.assertEqual(mm.send_provider(env), "gmail")
+        self.assertIsInstance(mm.build_sender(env), mm.GmailSmtpSender)
+
+    def test_resend_still_works_when_gmail_absent(self):
+        env = {"MEMBER_REPORT_SEND_APPROVED": "yes", "RESEND_API_KEY": "k", "MAIL_FROM": "a@b.c"}
+        self.assertEqual(mm.send_provider(env), "resend")
+        self.assertIsInstance(mm.build_sender(env), mm.ResendSender)
+
+    def test_build_sender_refuses_without_approval(self):
+        env = {k: v for k, v in self.GMAIL.items() if k != "MEMBER_REPORT_SEND_APPROVED"}
+        with self.assertRaises(RuntimeError):
+            mm.build_sender(env)
+
+
+class FakeSmtp:
+    def __init__(self, fail=None):
+        self.fail, self.logged, self.sent, self.quit_called = fail, None, [], False
+
+    def login(self, address, password):
+        if self.fail == "auth":
+            raise smtplib.SMTPAuthenticationError(535, b"bad credentials for secret-pass")
+        self.logged = (address, password)
+
+    def send_message(self, msg):
+        if self.fail == "refused":
+            raise smtplib.SMTPRecipientsRefused({"bob@example.com": (550, b"no such user")})
+        if self.fail == "smtp":
+            raise smtplib.SMTPServerDisconnected("connection lost bob@example.com")
+        self.sent.append(msg)
+
+    def quit(self):
+        self.quit_called = True
+
+
+class GmailSmtpSenderTests(unittest.TestCase):
+    def _sender(self, smtp, password="abcd efgh ijkl mnop", factory_error=None):
+        def factory(host, port, timeout):
+            if factory_error:
+                raise factory_error
+            self.last_args = (host, port, timeout)
+            return smtp
+        return mm.GmailSmtpSender("report@gmail.com", password, smtp_factory=factory)
+
+    def test_sends_multipart_message_and_logs_in_with_stripped_password(self):
+        smtp = FakeSmtp()
+        self._sender(smtp).send("bob@example.com", "[만조] 삼성전자 리포트", "<p>안녕</p>", "안녕")
+        self.assertEqual(smtp.logged, ("report@gmail.com", "abcdefghijklmnop"), "앱 비밀번호의 띄어쓰기는 지운다")
+        self.assertEqual(self.last_args[:2], ("smtp.gmail.com", 465))
+        msg = smtp.sent[0]
+        self.assertIn("report@gmail.com", msg["From"])
+        self.assertIn("만조", msg["From"])
+        self.assertEqual(msg["To"], "bob@example.com")
+        self.assertEqual(msg["Subject"], "[만조] 삼성전자 리포트")
+        self.assertEqual(msg.get_body(preferencelist=("plain",)).get_content().strip(), "안녕")
+        self.assertIn("<p>안녕</p>", msg.get_body(preferencelist=("html",)).get_content())
+        self.assertTrue(smtp.quit_called)
+
+    def test_failures_map_to_safe_messages_without_address_or_password(self):
+        cases = {"auth": "로그인 실패", "refused": "수신 주소 거부", "smtp": "SMTP 오류"}
+        for kind, expect in cases.items():
+            smtp = FakeSmtp(fail=kind)
+            with self.assertRaises(RuntimeError) as cm:
+                self._sender(smtp).send("bob@example.com", "s", "h", "t")
+            text = str(cm.exception)
+            self.assertIn(expect, text, kind)
+            for secret in ("bob@example.com", "secret-pass", "abcdefghijklmnop", "abcd efgh"):
+                self.assertNotIn(secret, text, kind + " 오류에 비밀이 들어가면 안 됨")
+            self.assertTrue(smtp.quit_called, "실패해도 연결은 닫는다")
+
+    def test_connection_error_is_reported_without_details(self):
+        with self.assertRaises(RuntimeError) as cm:
+            self._sender(FakeSmtp(), factory_error=OSError("[Errno 101] Network unreachable smtp.gmail.com")).send("bob@example.com", "s", "h", "t")
+        self.assertEqual(str(cm.exception), "Gmail 접속 실패")
+
+    def test_header_injection_in_recipient_is_refused_before_connecting(self):
+        smtp = FakeSmtp()
+        s = self._sender(smtp)
+        for bad in ["bob@example.com\nBcc: evil@x.y", "a@b.c, d@e.f", "bob@example.com\r\n", "not-an-address", "", None]:
+            with self.assertRaises(RuntimeError):
+                s.send(bad, "s", "h", "t")
+        self.assertIsNone(smtp.logged)
+        self.assertEqual(smtp.sent, [])
+
+    def test_header_injection_in_subject_is_neutralized(self):
+        smtp = FakeSmtp()
+        self._sender(smtp).send("bob@example.com", "제목\nBcc: evil@x.y\r\nX-Evil: 1", "h", "t")
+        msg = smtp.sent[0]
+        self.assertNotIn("\n", msg["Subject"])
+        self.assertIsNone(msg["Bcc"])
+        self.assertIsNone(msg["X-Evil"])
+
+    def test_requires_address_and_password(self):
+        with self.assertRaises(ValueError):
+            mm.GmailSmtpSender("", "pw")
+        with self.assertRaises(ValueError):
+            mm.GmailSmtpSender("a@gmail.com", "")
 
 
 class ResendSenderTests(unittest.TestCase):
@@ -248,7 +359,10 @@ class MainGateTests(unittest.TestCase):
 
     def test_send_without_approval_does_nothing(self):
         for extra in [{}, {"RESEND_API_KEY": "k", "MAIL_FROM": "f@x.y"}, {"MEMBER_REPORT_SEND_APPROVED": "yes"},
-                      {"MEMBER_REPORT_SEND_APPROVED": "yes", "RESEND_API_KEY": "k"}]:
+                      {"MEMBER_REPORT_SEND_APPROVED": "yes", "RESEND_API_KEY": "k"},
+                      {"GMAIL_ADDRESS": "r@gmail.com", "GMAIL_APP_PASSWORD": "pw"},                          # 승인 변수 없음
+                      {"MEMBER_REPORT_SEND_APPROVED": "yes", "GMAIL_ADDRESS": "r@gmail.com"},                # 앱 비밀번호 없음
+                      {"MEMBER_REPORT_SEND_APPROVED": "yes", "GMAIL_APP_PASSWORD": "pw"}]:                    # 주소 없음
             code, out, db = self._run(["--send"], dict(self.ENV, **extra))
             self.assertEqual(code, 2, str(extra))
             self.assertIn("발송 안 함", out)
