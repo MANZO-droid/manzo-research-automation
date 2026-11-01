@@ -1,0 +1,24 @@
+name: "Gmail 발송 점검 (로그인만 · 메일 발송 없음)"
+
+# 2026-11-02: 첫 실발송이 Gmail 접속 단계에서 끊겨(SMTPServerDisconnected) 원인을 가르기 위한 점검.
+# 465(SSL)·587(STARTTLS) 두 방식으로 로그인까지만 시도한다. 메일 발송·DB 수정 없음. 수동 실행 전용.
+# 필요한 Secrets: GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Gmail 로그인 점검
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          PYTHONUNBUFFERED: "1"
+        run: python -u scripts/member_report_smtp_check.py
