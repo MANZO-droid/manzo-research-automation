@@ -1,6 +1,6 @@
 {
   "schema": "semiclass-dashboard/v2",
-  "updated_at": "2026-10-31T04:23:06.469Z",
+  "updated_at": "2026-11-03T13:21:31.420Z",
   "automation": {
     "id": "manzo-top10-gainers",
     "name": "만조리서치 Top10 종목 분석 자동화",
@@ -14,7 +14,7 @@
         "path": "input/manzo-real-2026-07-13-049080.txt",
         "name": "manzo-real-2026-07-13-049080.txt",
         "size": 1843,
-        "updated_at": "2026-10-25T14:33:12.474Z",
+        "updated_at": "2026-11-03T13:12:16.695Z",
         "sha256": "e3777acfd4f49a25fa35d9921305a5383294ae7d9657736ec259675f3161c0ed"
       }
     ],
@@ -147,7 +147,7 @@
         "path": "input/manzo-real-2026-07-13-049080.txt",
         "name": "manzo-real-2026-07-13-049080.txt",
         "size": 1843,
-        "updated_at": "2026-10-25T14:33:12.474Z",
+        "updated_at": "2026-11-03T13:12:16.695Z",
         "sha256": "e3777acfd4f49a25fa35d9921305a5383294ae7d9657736ec259675f3161c0ed"
       }
     ],
@@ -158,14 +158,14 @@
         "path": "reference/policies/confirmed-rules.md",
         "name": "confirmed-rules.md",
         "size": 755,
-        "updated_at": "2026-10-25T14:33:12.476Z",
+        "updated_at": "2026-11-03T13:12:16.699Z",
         "sha256": "8fd540350c81d2a1cdba385373fc5fc1b36e57b880bcbc6950b7ab5c29cb6e5b"
       },
       {
         "path": "reference/policies/manzo-output-contract.md",
         "name": "manzo-output-contract.md",
         "size": 3832,
-        "updated_at": "2026-10-25T14:33:12.480Z",
+        "updated_at": "2026-11-03T13:12:16.700Z",
         "sha256": "41d64c91e1b1f358b3be9b0464eb4ae1c98108305fb009a10cc6736d252b2e2d"
       }
     ],
@@ -175,6 +175,16 @@
   "latest_run": null,
   "recent_runs": [],
   "recent_events": [
+    {
+      "schema": "semiclass-automation-event/v1",
+      "event_id": "evt-4b729496-6671-41eb-819c-95826c503bca",
+      "event_type": "feature",
+      "occurred_at": "2026-11-03T13:21:31.116Z",
+      "actor": "agent",
+      "run_id": null,
+      "message": "회원 일일 메일 2-3단계: member_daily_mail.py(조건 검색 결과+내 보유 종목 알람, 문구 틀·금지 표현 검사·동의 대상·단계 제한·하루 1통)와 수동 워크플로 추가. 아직 발송하지 않음(기본 점검 모드). 테스트 105개.",
+      "data": {}
+    },
     {
       "schema": "semiclass-automation-event/v1",
       "event_id": "evt-37c3b61d-53a4-4e60-b533-c3d7a2547a6c",
@@ -283,16 +293,6 @@
       "actor": "agent",
       "run_id": null,
       "message": "회장님 지적으로 발견: volume_stocks에 investors/prevRank/priceChange/prevTradeAmount 컬럼 누락 → db/005 마이그레이션+백필로 과거 데이터 복구, collect_gainers.py에 향후 수집 로직(네이버 frgn.naver 순매수, 전일 대비) 추가, 사이트 API 실측 확인",
-      "data": {}
-    },
-    {
-      "schema": "semiclass-automation-event/v1",
-      "event_id": "evt-12efe92c-8646-46b2-a417-48afd62dae8e",
-      "event_type": "bugfix",
-      "occurred_at": "2026-08-01T11:14:17.350Z",
-      "actor": "agent",
-      "run_id": null,
-      "message": "회장님 지적으로 발견: Supabase 전환 시 과거 JSON 데이터 백필 누락 → scripts/backfill_json_to_supabase.py로 gainers 14개 날짜·market-scope 31개 날짜 전부 복구, 사이트 API에서 실측 확인",
       "data": {}
     }
   ],

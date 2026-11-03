@@ -886,3 +886,23 @@ Resend는 무료 요금제가 있으나 도메인 없이는 가입 이메일로�
 - 테스트 70개(`python -m unittest tests.test_member_report tests.test_member_report_mail -v`). 실제 견본 리포트로 MIME 메시지를 만들어
   (전송 없이) 제목·본문(text/html)이 한글 그대로 복원되는 것을 확인.
 - **미검증**: 실제 Gmail 로그인·발송(앱 비밀번호 없음), GitHub Actions 서버 IP에서 Gmail 접속이 막히지 않는지, 받는 쪽 스팸함 분류 여부.
+
+## 2026-11-03 회원 일일 메일 (2-3단계) — 조건 검색 결과 + 내 보유 종목 알람
+설계서: manzo-site 저장소 `docs/superpowers/specs/2026-11-02-member-daily-mail-design.md`. **아직 한 통도 발송하지 않았다(기본은 점검 모드).**
+
+- `scripts/member_daily_mail.py`: 오늘 기준일의 `member_daily_picks`(회장님 PC가 올린 사실 값)로 문장을 틀에 채워 메일을 만든다.
+  선정 이유·매수 암시 표현을 쓰지 않는다(headline/bits/warn 틀, 설계서 §5-2). 기사 제목에 금지·자극적 표현이 있으면 그 기사는 뺀다.
+- 받는 사람: `member_mail_consent.digest_consent = true` 회원만. 단계 제한: `MEMBER_DAILY_RELEASE_ALL=yes` 가 없으면
+  `MEMBER_DAILY_TEST_ONLY`(허용 주소 목록)의 주소로만, 둘 다 없으면 아무에게도 보내지 않는다.
+- 보유 종목 알람: 리포트 허용 회원의 보유·관찰 종목(최대 10). 알람선 = 회원이 입력한 평균 매수가 대비 −x%(`member_mail_prefs`, 기본 3).
+  금액은 쓰지 않고 변동률(%)만, 입력값이 시뮬레이션일 수 있다는 안내를 붙인다. 종목 리포트는 `member_report.generate`(기존 검증 통과분)를 쓴다.
+- 안전: 거래일이 아니거나 오늘 기준일 자료가 없으면 발송하지 않고 회장님께 알림(자료 없음일 때). 금지 표현 검사 불통과 시 그 회원만 건너뜀.
+  `member_daily_mail_log`(회원·날짜 기본키)로 하루 1통 보장, 실패(error)는 다음 실행에서 재시도, 로그·알림에는 개수만(이메일·종목코드·매수가 금지).
+- 발송기 변경: `GmailSmtpSender.send(..., inline_images=None)` 로 차트 이미지(cid)를 붙인다. `build_report` 가 `inner_html`/`inner_text`/`name` 도 돌려준다
+  (면책 문구 없이 알맹이만 — 여러 종목을 한 통에 담기 위해. 기존 단독 리포트 출력은 그대로).
+- 워크플로 `member-daily-mail.yml`: 수동 실행(mode=check|send). 이 저장소는 공개라서 점검 모드는 본문을 로그·Artifacts 로 남기지 않는다.
+  본문 확인은 회장님 PC 에서 `--preview --out` 으로.
+- 테스트: `python -m unittest tests.test_member_report tests.test_member_report_mail tests.test_member_daily_mail -v` (105개).
+  안전장치를 하나씩 끄는 확인(동의 조건·단계 제한·금지 표현 검사·하루 1통·거래일·기사 필터)에서 모두 테스트가 실패하는 것을 확인.
+- 실제 DB(운영)로 미리보기를 만들어 확인함(회장님 계정 1명 대상, 발송 없음, 본문은 회장님 PC 에만 저장).
+- **미검증**: 실제 발송, Gmail 에서 인라인 차트 이미지의 표시, 자동 실행(스케줄 미연결).

@@ -64,6 +64,8 @@ class GmailSmtpSender:
     """Gmail SMTP(앱 비밀번호)로 한 통을 보낸다. Gmail은 보낸 사람을 로그인한 계정 주소로 고정한다.
     실패 사유에는 수신 주소·본문·비밀번호를 넣지 않고, 어떤 종류의 실패인지만 남긴다."""
 
+    supports_inline_images = True        # 일일 메일의 차트 이미지(cid 첨부)를 보낼 수 있다
+
     def __init__(self, address, app_password, display_name="만조Investment", host="smtp.gmail.com", port=465, smtp_factory=None, timeout=30):
         if not address or not app_password:
             raise ValueError("address 와 app_password 가 필요합니다")
@@ -72,7 +74,7 @@ class GmailSmtpSender:
         self.display_name, self.host, self.port, self.timeout = display_name, host, port, timeout
         self._factory = smtp_factory or (lambda h, p, t: smtplib.SMTP_SSL(h, p, timeout=t))
 
-    def _message(self, to, subject, html_body, text_body):
+    def _message(self, to, subject, html_body, text_body, inline_images=None):
         if not _SINGLE_ADDR.match(to or ""):
             raise RuntimeError("수신 주소 형식 오류")
         msg = EmailMessage()
@@ -81,10 +83,14 @@ class GmailSmtpSender:
         msg["Subject"] = re.sub(r"[\r\n]+", " ", subject or "")      # 헤더 줄바꿈 삽입 방지
         msg.set_content(text_body or "")
         msg.add_alternative(html_body or "", subtype="html")
+        if inline_images:                                              # {cid: PNG bytes} → HTML 의 <img src="cid:..."> 와 짝
+            html_part = msg.get_body(preferencelist=("html",))
+            for cid, data in inline_images.items():
+                html_part.add_related(data, maintype="image", subtype="png", cid=f"<{cid}>")
         return msg
 
-    def send(self, to, subject, html_body, text_body):
-        msg = self._message(to, subject, html_body, text_body)
+    def send(self, to, subject, html_body, text_body, inline_images=None):
+        msg = self._message(to, subject, html_body, text_body, inline_images)
         try:
             smtp = self._factory(self.host, self.port, self.timeout)
             try:
@@ -107,6 +113,8 @@ class GmailSmtpSender:
 
 # ─── Resend 발송기 ────────────────────────────────────────────────────────────────
 class ResendSender:
+    supports_inline_images = False       # 이미지 없이 보낸다(발송기는 이 값을 보고 <img> 없는 본문을 만든다)
+
     def __init__(self, api_key, mail_from, session=None, timeout=30):
         if not api_key or not mail_from:
             raise ValueError("api_key 와 mail_from 이 필요합니다")
@@ -116,7 +124,7 @@ class ResendSender:
             session = requests.Session()
         self.s = session
 
-    def send(self, to, subject, html_body, text_body):
+    def send(self, to, subject, html_body, text_body, inline_images=None):
         r = self.s.post(RESEND_URL, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
                         json={"from": self.mail_from, "to": [to], "subject": subject, "html": html_body, "text": text_body},
                         timeout=self.timeout)
