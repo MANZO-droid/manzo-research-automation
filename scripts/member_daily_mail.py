@@ -461,6 +461,11 @@ def main(argv=None):
     if a.preview:
         mail = out.get("preview")
         if not mail:
+            if out["status"] in ("no_recipients", "not_trading_day"):
+                # 오류가 아니다: 시험 대상(MEMBER_DAILY_TEST_ONLY)이나 전체 공개(MEMBER_DAILY_RELEASE_ALL)가 없으면 대상이 0명인 것이 정상이고,
+                # 휴장일에는 만들 메일이 없다. 점검 실행이 빨간 실패로 보이지 않게 정상 종료한다.
+                print(f"[미리보기 없음] 상태: {out['status']} (오류 아님)")
+                return 0
             print(f"[미리보기 없음] 상태: {out['status']}")
             return 1
         print(f"제목: {mail['subject']}\n차트 {len(mail['images'])}장, 본문 {len(mail['text'])}자, 금지 표현 검사 통과")
