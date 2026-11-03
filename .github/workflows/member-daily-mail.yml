@@ -1,0 +1,85 @@
+name: "회원 일일 메일 (수동 실행 · 기본은 점검만)"
+
+# 2026-11-03 (2-3단계): 회원에게 보내는 일일 메일(조건 검색 결과 + 내 보유 종목 알람)을 만들고 발송한다.
+# 설계서: manzo-site 저장소 docs/superpowers/specs/2026-11-02-member-daily-mail-design.md
+#
+# 이 저장소는 공개라서 실행 기록(로그)과 Artifacts 를 누구나 볼 수 있다. 그래서
+#   - 점검 모드는 메일 본문을 파일·로그로 남기지 않는다(제목·차트 장수·글자 수·검사 결과만 출력).
+#     본문 확인이 필요하면 회장님 PC 에서 `--preview --out` 으로 받는다(보유 종목이 담길 수 있기 때문).
+#   - 로그에는 회원 이메일·종목코드·매수가를 남기지 않는다(개수만).
+#
+# 안전 장치 (모두 갖춰야 실제 메일이 나간다):
+#   1) 이 워크플로를 mode = send 로 직접 실행해야 한다. 기본값(check)은 DB 수정·메일 발송이 없다.
+#   2) 저장소 변수 MEMBER_REPORT_SEND_APPROVED = yes (회장님이 등록) + 발송 수단 비밀값(GMAIL_ADDRESS, GMAIL_APP_PASSWORD).
+#   3) 단계 제한: 저장소 변수 MEMBER_DAILY_RELEASE_ALL = yes 가 없으면 MEMBER_DAILY_TEST_ONLY(허용 주소, 쉼표로 구분)의
+#      주소로만 보낸다. 둘 다 없으면 아무에게도 보내지 않는다.
+#   4) 오늘이 거래일이고 오늘 기준일 자료(member_daily_picks)가 있어야 한다.
+#   5) 한 회원에게는 하루 한 통(member_daily_mail_log 기록).
+#
+# 스케줄(자동 실행)은 일부러 넣지 않았다. 시험 발송과 전문가 확인이 끝난 뒤 별도로 연결한다(거래일 21:00 KST 예정).
+#
+# 필요한 Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GROQ_API_KEY(보유 종목 리포트의 AI 설명, 없으면 기본형),
+#                 GMAIL_ADDRESS, GMAIL_APP_PASSWORD, ADMIN_ALERT_EMAIL(문제 알림을 받을 회장님 주소)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = 점검만(발송 없음), send = 실제 발송(승인 변수·단계 제한 필요)"
+        type: choice
+        options: [check, send]
+        default: check
+      date:
+        description: "기준일 YYYY-MM-DD (비우면 오늘 KST). 시험용"
+        required: false
+        default: ""
+
+concurrency:
+  group: member-daily-mail
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 이 저장소(리서치자동화) 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: |
+          pip install requests beautifulsoup4 groq
+
+      - name: 단위 테스트 (문구 틀·금지 표현·동의 대상·단계 제한·하루 1통)
+        run: |
+          python -m unittest tests.test_member_report tests.test_member_report_mail tests.test_member_daily_mail -v
+
+      - name: 일일 메일 (기본은 점검만)
+        env:
+          MODE: ${{ inputs.mode }}
+          BASE_DATE: ${{ inputs.date }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          ADMIN_ALERT_EMAIL: ${{ secrets.ADMIN_ALERT_EMAIL }}
+          MEMBER_REPORT_SEND_APPROVED: ${{ vars.MEMBER_REPORT_SEND_APPROVED }}
+          MEMBER_DAILY_TEST_ONLY: ${{ vars.MEMBER_DAILY_TEST_ONLY }}
+          MEMBER_DAILY_RELEASE_ALL: ${{ vars.MEMBER_DAILY_RELEASE_ALL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          ARGS=""
+          if [ -n "$BASE_DATE" ]; then ARGS="--date $BASE_DATE"; fi
+          if [ "$MODE" = "send" ]; then
+            python -u scripts/member_daily_mail.py --send $ARGS
+          else
+            python -u scripts/member_daily_mail.py --preview $ARGS
+          fi

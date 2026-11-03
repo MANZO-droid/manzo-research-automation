@@ -335,6 +335,7 @@ def build_report(code, price, articles, investors=None, ai_text=None):
     if ai_text:
         paras = "".join(f'<p style="margin:0 0 10px;font-size:14px;line-height:1.75">{e(p.strip())}</p>' for p in ai_text.split("\n") if p.strip())
         parts += [h2("현재 상태 설명"), paras]
+    inner_html = "".join(parts[2:])        # 제목·기준일 두 줄을 뺀 본문(요약·수치·수급·뉴스·설명). 일일 메일이 여러 종목을 한 통에 담을 때 쓴다
     parts.append(f'<hr style="border:none;border-top:1px solid #ddd;margin:24px 0 12px">'
                  f'<p style="margin:0 0 4px;font-size:12px;color:#8a8a98;line-height:1.6">{e(DISCLAIMER)}</p>'
                  f'<p style="margin:0;font-size:12px;color:#8a8a98">{e(REQUESTED_NOTE)}</p>')
@@ -351,9 +352,11 @@ def build_report(code, price, articles, investors=None, ai_text=None):
     lines += [f"- {a['title']} ({a.get('date', '')}) {_safe_url(a.get('url'))}".rstrip() for a in news] or ["- 최근 수집된 관련 기사가 없습니다."]
     if ai_text:
         lines += ["", "[현재 상태 설명]", ai_text.strip()]
+    inner_text = "\n".join(lines[2:])
     lines += ["", DISCLAIMER, REQUESTED_NOTE]
     return {"stock_code": code, "report_date": price["trade_date"], "subject": subject,
-            "html": body_html, "text": "\n".join(lines), "used_ai": bool(ai_text)}
+            "html": body_html, "text": "\n".join(lines), "used_ai": bool(ai_text),
+            "name": name, "inner_html": inner_html, "inner_text": inner_text}
 
 
 # ─── Supabase REST (service role) ───────────────────────────────────────────────
@@ -465,12 +468,14 @@ def _short_error(ex):
 class FakeSender:
     """시험용 발송기: 실제로 보내지 않고 기록만 한다(수신 주소는 가려서 보관)."""
 
+    supports_inline_images = True
+
     def __init__(self):
         self.sent = []
 
-    def send(self, to, subject, html_body, text_body):
+    def send(self, to, subject, html_body, text_body, inline_images=None):
         self.sent.append({"to": (to[0] + "***@" + to.split("@", 1)[1]) if "@" in to else "***", "subject": subject,
-                          "html": html_body, "text": text_body})
+                          "html": html_body, "text": text_body, "images": sorted(inline_images or {})})
 
 
 def process_queue(db, sender, make_report, limit=20, now=None, log=print):
