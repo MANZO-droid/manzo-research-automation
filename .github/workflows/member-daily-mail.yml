@@ -13,6 +13,9 @@ name: "회원 일일 메일 (수동 실행 · 기본은 점검만)"
 #   2) 저장소 변수 MEMBER_REPORT_SEND_APPROVED = yes (회장님이 등록) + 발송 수단 비밀값(GMAIL_ADDRESS, GMAIL_APP_PASSWORD).
 #   3) 단계 제한: 저장소 변수 MEMBER_DAILY_RELEASE_ALL = yes 가 없으면 MEMBER_DAILY_TEST_ONLY(허용 주소, 쉼표로 구분)의
 #      주소로만 보낸다. 둘 다 없으면 아무에게도 보내지 않는다.
+#      MEMBER_DAILY_TEST_ONLY 는 변수(Variables)가 아니라 **Secret** 으로 등록한다 - 이 저장소는 공개라서 변수 값은 실행 로그의
+#      env 줄에 그대로 찍히지만 Secret 은 가려지기 때문이다(회원·회장님 이메일 주소가 공개 로그에 남으면 안 된다).
+#      MEMBER_DAILY_RELEASE_ALL 은 yes/아님 값이라 변수로 둔다.
 #   4) 오늘이 거래일이고 오늘 기준일 자료(member_daily_picks)가 있어야 한다.
 #   5) 한 회원에게는 하루 한 통(member_daily_mail_log 기록).
 #
@@ -72,7 +75,7 @@ jobs:
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           ADMIN_ALERT_EMAIL: ${{ secrets.ADMIN_ALERT_EMAIL }}
           MEMBER_REPORT_SEND_APPROVED: ${{ vars.MEMBER_REPORT_SEND_APPROVED }}
-          MEMBER_DAILY_TEST_ONLY: ${{ vars.MEMBER_DAILY_TEST_ONLY }}
+          MEMBER_DAILY_TEST_ONLY: ${{ secrets.MEMBER_DAILY_TEST_ONLY }}
           MEMBER_DAILY_RELEASE_ALL: ${{ vars.MEMBER_DAILY_RELEASE_ALL }}
           PYTHONUNBUFFERED: "1"
         run: |

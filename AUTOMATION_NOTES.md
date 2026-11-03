@@ -893,7 +893,7 @@ Resend는 무료 요금제가 있으나 도메인 없이는 가입 이메일로�
 - `scripts/member_daily_mail.py`: 오늘 기준일의 `member_daily_picks`(회장님 PC가 올린 사실 값)로 문장을 틀에 채워 메일을 만든다.
   선정 이유·매수 암시 표현을 쓰지 않는다(headline/bits/warn 틀, 설계서 §5-2). 기사 제목에 금지·자극적 표현이 있으면 그 기사는 뺀다.
 - 받는 사람: `member_mail_consent.digest_consent = true` 회원만. 단계 제한: `MEMBER_DAILY_RELEASE_ALL=yes` 가 없으면
-  `MEMBER_DAILY_TEST_ONLY`(허용 주소 목록)의 주소로만, 둘 다 없으면 아무에게도 보내지 않는다.
+  `MEMBER_DAILY_TEST_ONLY`(허용 주소 목록, **Secret** — 이 저장소는 공개라 변수 값은 로그에 노출됨)의 주소로만, 둘 다 없으면 아무에게도 보내지 않는다.
 - 보유 종목 알람: 리포트 허용 회원의 보유·관찰 종목(최대 10). 알람선 = 회원이 입력한 평균 매수가 대비 −x%(`member_mail_prefs`, 기본 3).
   금액은 쓰지 않고 변동률(%)만, 입력값이 시뮬레이션일 수 있다는 안내를 붙인다. 종목 리포트는 `member_report.generate`(기존 검증 통과분)를 쓴다.
 - 안전: 거래일이 아니거나 오늘 기준일 자료가 없으면 발송하지 않고 회장님께 알림(자료 없음일 때). 금지 표현 검사 불통과 시 그 회원만 건너뜀.
