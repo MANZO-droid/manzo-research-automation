@@ -2,8 +2,9 @@
 """
 자동 수리: 매일 정규 수집 뒤에 돌아, 대시보드(admin.html)가 잡아내는 이슈 중
 "사실관계로 확인 가능한 것"만 스스로 고치고 repair_log에 기록한다. 판단이
-필요한 것은 고치지 않고 알림만 남긴다(기존처럼 - GitHub Actions 실패 시
-저장소 소유자 이메일).
+필요한 것은 고치지 않고 alert_only로 남긴다. alert_only는 로그만 남기고
+정상 종료하며, 실제 오류로 남은 장애가 있을 때만 GitHub Actions를 실패로
+남겨 저장소 소유자 이메일로 알린다(아래 '종료 코드' 참고).
 
 자동으로 고치는 것:
   1. 날짜 공백/건수 부족 (daily_gainers·volume_stocks) - backfill_krx_historical의
@@ -25,14 +26,19 @@
 자동으로 고치지 않는 것(알림만): 위 재시도로도 안 풀리는 것, market_scope
 (자체 공백 연장 로직이 따로 있어 겹치지 않게 제외).
 
-종료 코드: 남은 미해결 이슈가 있으면 1(기존 report-gap-check와 같은 방식으로
-GitHub Actions가 실패 표시 → 저장소 소유자 이메일 알림), 전부 해결되거나
-애초에 이슈가 없으면 0.
+종료 코드(2026-11-16 정리): 실제 예외·오류·미해결 장애가 남아 있으면 1
+(기존 report-gap-check와 같은 방식으로 GitHub Actions가 실패 표시 → 저장소
+소유자 이메일 알림), 전부 해결되거나 애초에 이슈가 없으면 0.
+alert_only(진짜 뉴스가 없는 경우·네이버에 아직 실적이 안 올라온 경우처럼
+예상 가능한 미반영 상태)만 남은 경우는 repair_log에 그대로 기록하고 0으로
+정상 종료한다 - 이 상태는 매일 다시 확인될 뿐 사람이 조치할 일이 없으므로
+실패 메일을 보내지 않는다.
 
 필요 환경변수 (.env.local): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, KRX_OPENAPI_KEY,
 GROQ_API_KEY(재시도용 - 정규 자동화와 같은 provider를 기본으로 쓴다)
 """
 import os, sys
+from collections import namedtuple
 from datetime import datetime, timedelta
 
 import requests
@@ -46,6 +52,10 @@ from krx_calendar import is_trading_day  # noqa: E402
 from backfill_krx_historical import backfill_date  # noqa: E402
 
 LOOKBACK_DAYS = 10  # 위반 재검증·분석 재시도는 최근 며칠치만 본다(전체를 매번 훑을 필요 없음)
+
+# 각 수리 단계의 결과. hard_ok=False는 실제 장애(예외·재시도 실패·미해결 공백)로
+# 종료 코드 1(실패 메일) 대상, alerts는 alert_only로 남긴 건수(로그만 기록).
+RepairOutcome = namedtuple("RepairOutcome", "hard_ok alerts")
 
 
 def sb_get(table: str, query: str) -> list:
@@ -80,7 +90,7 @@ def log_repair(pipeline: str, trade_date: str | None, issue: str, action: str, s
         sb_patch_rows("repair_log", [row], "id")  # id는 bigserial이라 실제 충돌 없이 항상 insert됨
     except Exception as e:
         print(f"  [repair_log 기록 오류] {e}")
-    tag = "OK" if success else "FAIL"
+    tag = "OK" if success else ("ALERT" if action == "alert_only" else "FAIL")
     print(f"  [{tag}] {pipeline} {trade_date or ''} {issue} -> {action}")
 
 
@@ -110,15 +120,15 @@ def find_short_count_dates(days: int) -> list[str]:
     return sorted(d for d, n in counts.items() if n != 10)
 
 
-def repair_gaps_and_counts(groq_client) -> bool:
-    """모두 해결되면 True, 하나라도 못 고치면 False."""
+def repair_gaps_and_counts(groq_client) -> RepairOutcome:
+    """모두 해결되면 hard_ok=True, 하나라도 못 고치면 False(실제 장애)."""
     yesterday = (datetime.now(KST).date() - timedelta(days=1)).strftime("%Y-%m-%d")
     start = (datetime.now(KST).date() - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     gaps = find_date_gaps(start, yesterday)
     shorts = find_short_count_dates(LOOKBACK_DAYS)
     target_dates = sorted(set(gaps) | set(shorts))
     if not target_dates:
-        return True
+        return RepairOutcome(True, 0)
 
     all_ok = True
     for date_str in target_dates:
@@ -136,7 +146,7 @@ def repair_gaps_and_counts(groq_client) -> bool:
         except Exception as e:
             log_repair("gainers", date_str, issue, "backfill_rerun", False, {"error": str(e)})
             all_ok = False
-    return all_ok
+    return RepairOutcome(all_ok, 0)
 
 
 # ── 2) 관리종목 등 규정 위반 재검증 ────────────────────────────────────────
@@ -153,10 +163,10 @@ def find_rule_violation_dates(days: int) -> list[str]:
     return sorted(bad_dates)
 
 
-def repair_rule_violations(groq_client) -> bool:
+def repair_rule_violations(groq_client) -> RepairOutcome:
     bad_dates = find_rule_violation_dates(LOOKBACK_DAYS)
     if not bad_dates:
-        return True
+        return RepairOutcome(True, 0)
     all_ok = True
     for date_str in bad_dates:
         try:
@@ -172,7 +182,7 @@ def repair_rule_violations(groq_client) -> bool:
             log_repair("gainers", date_str, "관리종목 등 제외 대상이 Top10에 포함됨",
                       "rule_violation_fix", False, {"error": str(e)})
             all_ok = False
-    return all_ok
+    return RepairOutcome(all_ok, 0)
 
 
 # ── 3) 빈 분석(rise_reason/chart_analysis) 재시도 ──────────────────────────
@@ -187,11 +197,13 @@ def find_empty_analysis_rows(days: int) -> list[dict]:
     return [r for r in rows if not r.get("rise_reason") or not r.get("chart_analysis")]
 
 
-def repair_empty_analysis(client) -> bool:
+def repair_empty_analysis(client) -> RepairOutcome:
+    """재시도로 채우면 해결, 재시도해도 비면 alert_only(로그만), 재시도 중 예외는 장애."""
     rows = find_empty_analysis_rows(LOOKBACK_DAYS)
     if not rows:
-        return True
-    all_ok = True
+        return RepairOutcome(True, 0)
+    hard_ok = True
+    alerts = 0
     for r in rows:
         date_str, ticker, name = r["trade_date"], r["ticker"], r["name"]
         try:
@@ -214,15 +226,18 @@ def repair_empty_analysis(client) -> bool:
                           {"ticker": ticker, "articles": len(articles)})
             else:
                 # 재시도해도 안 채워짐 - 진짜 뉴스가 없는 경우와 구분이 안 되므로
-                # 값을 지어내지 않고 알림만 남긴다.
+                # 값을 지어내지 않고 alert_only로 남긴다(예상 가능한 미반영 상태 -
+                # 실패로 처리하지 않고 로그만 기록).
                 log_repair("gainers", date_str, f"{name} 상승이유/차트분석 공란", "alert_only", False,
                           {"ticker": ticker, "articles": len(articles), "note": "재시도해도 공란 - 수동 확인 필요"})
-                all_ok = False
+                alerts += 1
         except Exception as e:
-            log_repair("gainers", date_str, f"{name} 상승이유/차트분석 공란", "alert_only", False,
+            # 재시도 자체가 터진 경우(네트워크·API 오류 등)는 예상된 미반영이 아니라
+            # 실제 장애로 본다 - 종료 코드 1로 알린다.
+            log_repair("gainers", date_str, f"{name} 상승이유/차트분석 공란", "analysis_retry", False,
                       {"ticker": ticker, "error": str(e)})
-            all_ok = False
-    return all_ok
+            hard_ok = False
+    return RepairOutcome(hard_ok, alerts)
 
 
 # ── 4) 빈 재무정보(financials) 재시도 ───────────────────────────────────────
@@ -236,11 +251,13 @@ def find_empty_financials_rows(days: int) -> list[dict]:
     return [r for r in rows if not r.get("financials")]
 
 
-def repair_empty_financials() -> bool:
+def repair_empty_financials() -> RepairOutcome:
+    """재조회로 채우면 해결, 네이버에 아직 실적이 없으면 alert_only(로그만), 예외는 장애."""
     rows = find_empty_financials_rows(LOOKBACK_DAYS)
     if not rows:
-        return True
-    all_ok = True
+        return RepairOutcome(True, 0)
+    hard_ok = True
+    alerts = 0
     for r in rows:
         date_str, ticker, name, report_type = r["trade_date"], r["ticker"], r["name"], r["report_type"]
         try:
@@ -257,12 +274,13 @@ def repair_empty_financials() -> bool:
                 # 되므로 값을 지어내지 않는다 - 네이버가 올리면 다음 실행 때 채워진다.
                 log_repair("gainers", date_str, f"{name} 재무정보 공란", "alert_only", False,
                           {"ticker": ticker, "note": "네이버에 아직 실제 발표 실적 없음 - 올라오면 다음 실행 때 자동 반영"})
-                all_ok = False
+                alerts += 1
         except Exception as e:
-            log_repair("gainers", date_str, f"{name} 재무정보 공란", "alert_only", False,
+            # 네이버 조회 자체가 터진 경우는 실제 장애로 본다(종료 코드 1).
+            log_repair("gainers", date_str, f"{name} 재무정보 공란", "financials_retry", False,
                       {"ticker": ticker, "error": str(e)})
-            all_ok = False
-    return all_ok
+            hard_ok = False
+    return RepairOutcome(hard_ok, alerts)
 
 
 def main():
@@ -283,16 +301,29 @@ def main():
 
     print(f"[자동 수리 시작] {datetime.now(KST).isoformat()}")
 
-    ok1 = repair_gaps_and_counts(groq_client)
-    ok2 = repair_rule_violations(groq_client)
-    ok3 = repair_empty_analysis(groq_client)
-    ok4 = repair_empty_financials()
+    steps = [
+        ("날짜공백/건수", repair_gaps_and_counts(groq_client)),
+        ("규정위반", repair_rule_violations(groq_client)),
+        ("빈분석", repair_empty_analysis(groq_client)),
+        ("빈재무정보", repair_empty_financials()),
+    ]
 
-    print(f"[자동 수리 종료] 날짜공백/건수={ok1}, 규정위반={ok2}, 빈분석={ok3}, 빈재무정보={ok4}")
-    if ok1 and ok2 and ok3 and ok4:
-        print("모든 이슈가 자동으로 해결됐습니다(또는 애초에 없었습니다).")
+    print("[자동 수리 종료] " + ", ".join(
+        f"{label}={'OK' if out.hard_ok else 'FAIL'}" + (f"(alert_only {out.alerts})" if out.alerts else "")
+        for label, out in steps))
+
+    alerts = sum(out.alerts for _, out in steps)
+    if alerts:
+        print(f"alert_only {alerts}건 - 예상 가능한 미반영 상태라 repair_log에만 남기고 "
+              "실패로 처리하지 않습니다(다음 실행 때 다시 확인).")
+
+    if all(out.hard_ok for _, out in steps):
+        if alerts:
+            print("자동으로 고칠 수 있는 이슈는 모두 처리했습니다(남은 항목은 alert_only).")
+        else:
+            print("모든 이슈가 자동으로 해결됐습니다(또는 애초에 없었습니다).")
         sys.exit(0)
-    print("일부 이슈는 자동으로 해결되지 않았습니다 - repair_log를 확인하세요.")
+    print("실제 오류·미해결 장애가 있습니다 - 위 로그와 repair_log를 확인하세요.")
     sys.exit(1)
 
 
