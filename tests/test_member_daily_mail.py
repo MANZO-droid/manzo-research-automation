@@ -3,6 +3,7 @@ import base64
 import os
 import sys
 import unittest
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import member_daily_mail as dm  # noqa: E402
@@ -90,6 +91,41 @@ RELEASE = {"MEMBER_DAILY_RELEASE_ALL": "yes"}
 
 def go(db, sender, env=RELEASE, send=True, trading=True, admin="admin@example.com", make=fake_report):
     return dm.run(db, sender, make, TODAY, env=env, admin_email=admin, send=send, is_trading_day=lambda d: trading, log=lambda *a: None)
+
+
+def kst(y, mo, d, h, mi=0):
+    return datetime(y, mo, d, h, mi, tzinfo=dm.KST)
+
+
+class DefaultPickDateTests(unittest.TestCase):
+    """--date 를 주지 않았을 때의 기준일: 09:00 KST 이전은 전날, 09:00 이후는 당일."""
+
+    def test_after_9am_uses_today(self):
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 19, 9, 0)), "2026-11-19")
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 19, 12, 0)), "2026-11-19")
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 18, 21, 0)), "2026-11-18")   # 정기 발송 시각
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 18, 23, 59)), "2026-11-18")
+
+    def test_before_9am_uses_previous_day(self):
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 19, 0, 0)), "2026-11-18")
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 19, 8, 59)), "2026-11-18")
+        self.assertEqual(dm.default_pick_date(kst(2026, 11, 19, 3, 30)), "2026-11-18")
+
+    def test_previous_day_crosses_month_and_year_boundary(self):
+        self.assertEqual(dm.default_pick_date(kst(2026, 12, 1, 7, 0)), "2026-11-30")
+        self.assertEqual(dm.default_pick_date(kst(2027, 1, 1, 0, 30)), "2026-12-31")
+
+    def test_utc_input_is_read_in_kst(self):
+        self.assertEqual(dm.default_pick_date(datetime(2026, 11, 18, 15, 30, tzinfo=timezone.utc)), "2026-11-18")  # 00:30 KST
+        self.assertEqual(dm.default_pick_date(datetime(2026, 11, 19, 0, 30, tzinfo=timezone.utc)), "2026-11-19")    # 09:30 KST
+        self.assertEqual(dm.default_pick_date(datetime(2026, 11, 19, 0, 0)), "2026-11-18")                         # 나이브 입력도 KST 로
+
+    def test_explicit_date_wins_at_any_hour(self):
+        for now in (kst(2026, 11, 19, 0, 0), kst(2026, 11, 19, 8, 59), kst(2026, 11, 19, 9, 0), kst(2026, 11, 19, 21, 0)):
+            self.assertEqual(dm.resolve_pick_date("2026-11-18", now), "2026-11-18")
+        self.assertEqual(dm.resolve_pick_date("2026-11-18"), "2026-11-18")
+        self.assertEqual(dm.resolve_pick_date(None, kst(2026, 11, 19, 8, 59)), "2026-11-18")
+        self.assertEqual(dm.resolve_pick_date("", kst(2026, 11, 19, 9, 0)), "2026-11-19")
 
 
 class WordingTests(unittest.TestCase):

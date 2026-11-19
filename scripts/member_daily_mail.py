@@ -23,7 +23,7 @@
 사용법
   python scripts/member_daily_mail.py --preview [--out out]    # 첫 대상 회원 한 명의 메일을 파일로만 만든다(발송·기록 없음)
   python scripts/member_daily_mail.py --send                   # 실제 발송(승인 장치 필요)
-  --date YYYY-MM-DD   기준일 지정(시험용). 기본은 오늘(KST).
+  --date YYYY-MM-DD   기준일 지정(시험용). 기본은 09:00 KST 이후면 당일, 그 이전이면 전날(KST).
 """
 import argparse
 import base64
@@ -31,7 +31,7 @@ import html
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import member_report as mr  # noqa: E402
@@ -299,6 +299,29 @@ def _short(ex):
     return mr._short_error(ex)
 
 
+# ─── 기준일 결정 ──────────────────────────────────────────────────────────────────
+# 조건 검색 자료(member_daily_picks)는 장 마감 뒤에 올라온다. 그래서 새벽(00:00~08:59 KST)에 도는 실행은
+# 아직 당일 자료가 없으므로 전날 자료를 기준일로 잡는다. 09:00 KST 이후면 당일 자료를 쓴다.
+# (스케줄 실행이 몇 시간 늦게 시작되거나 손으로 새벽에 돌려도 엉뚱한 날짜를 보지 않게 하는 장치)
+PICK_DATE_CUTOFF_HOUR = 9
+
+
+def default_pick_date(now=None):
+    """--date 를 주지 않았을 때 쓸 기준일 YYYY-MM-DD 를 고른다(now 는 KST 기준 시각, 기본은 지금)."""
+    now = now or datetime.now(KST)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=KST)
+    now_kst = now.astimezone(KST)
+    if now_kst.hour < PICK_DATE_CUTOFF_HOUR:
+        return (now_kst - timedelta(days=1)).strftime("%Y-%m-%d")
+    return now_kst.strftime("%Y-%m-%d")
+
+
+def resolve_pick_date(date_arg=None, now=None):
+    """--date 가 명시되면 그 날짜를 그대로, 없으면 default_pick_date() 를 쓴다."""
+    return date_arg or default_pick_date(now)
+
+
 # ─── 실행 ─────────────────────────────────────────────────────────────────────────
 def run(db, sender, make_report, today, now=None, env=None, admin_email=None, send=True, is_trading_day=None, log=print):
     """오늘 자 일일 메일을 만든다. send=False 면 발송·기록 없이 첫 대상 한 명의 메일을 돌려준다(미리보기).
@@ -425,7 +448,7 @@ def main(argv=None):
     if not (a.send or a.preview):
         ap.error("--send 또는 --preview 중 하나가 필요합니다")
     mr._load_env()
-    today = a.date or datetime.now(KST).strftime("%Y-%m-%d")
+    today = resolve_pick_date(a.date)
     db = mr.Db()
 
     if a.send:
